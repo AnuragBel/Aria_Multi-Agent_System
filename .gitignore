@@ -1,3 +1,16 @@
-.env
+# Dependency Node Caches
+node_modules/
+Frontend/node_modules/
+
+# Python Local Sandboxes & Storage
+.venv/
 __pycache__/
 *.pyc
+Backend/chroma_store/
+
+# IDE Configuration Ecosystems
+.vscode/
+.idea/
+
+# Secret Token Keys (Never upload these!)
+.env

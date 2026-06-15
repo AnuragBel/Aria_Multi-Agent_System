@@ -1,4 +1,6 @@
-import { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
+import Markdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 const API = 'http://localhost:8000'
 
@@ -10,67 +12,74 @@ function getGreeting() {
   return 'Good night'
 }
 
+// ── Error Boundary ─────────────────────────────────────────────
+class MarkdownErrorBoundary extends React.Component {
+  constructor(props) { 
+    super(props)
+    this.state = { hasError: false } 
+  }
+  static getDerivedStateFromError() { 
+    return { hasError: true } 
+  }
+  render() {
+    if (this.state.hasError) {
+      return <p style={{ fontSize: '0.875rem', color: '#262626', whiteSpace: 'pre-wrap' }}>{this.props.fallbackText}</p>
+    }
+    return this.props.children
+  }
+}
+
+// ── Markdown components (v9 compatible) ────────────────────────
+const MD = {
+  h1: ({ children }) => <h1 style={{ fontSize: '1.15rem', fontWeight: 600, color: '#111', margin: '4px 0 8px' }}>{children}</h1>,
+  h2: ({ children }) => <h2 style={{ fontSize: '1rem', fontWeight: 600, color: '#111', margin: '12px 0 6px' }}>{children}</h2>,
+  h3: ({ children }) => <h3 style={{ fontSize: '0.9rem', fontWeight: 600, color: '#111', margin: '8px 0 4px' }}>{children}</h3>,
+  p:  ({ children }) => <p  style={{ fontSize: '0.875rem', color: '#262626', lineHeight: 1.7, margin: '0 0 8px' }}>{children}</p>,
+  ul: ({ children }) => <ul style={{ fontSize: '0.875rem', color: '#262626', paddingLeft: '18px', margin: '0 0 8px', listStyleType: 'disc' }}>{children}</ul>,
+  ol: ({ children }) => <ol style={{ fontSize: '0.875rem', color: '#262626', paddingLeft: '18px', margin: '0 0 8px', listStyleType: 'decimal' }}>{children}</ol>,
+  li: ({ children }) => <li style={{ fontSize: '0.875rem', color: '#404040', marginBottom: '3px', lineHeight: 1.6 }}>{children}</li>,
+  strong: ({ children }) => <strong style={{ fontWeight: 600, color: '#111' }}>{children}</strong>,
+  em: ({ children }) => <em style={{ fontStyle: 'italic' }}>{children}</em>,
+  hr: () => <hr style={{ border: 'none', borderTop: '1px solid #e5e5e5', margin: '12px 0' }} />,
+  a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: '#7c3aed', textDecoration: 'underline' }}>{children}</a>,
+  blockquote: ({ children }) => <blockquote style={{ borderLeft: '3px solid #c4b5fd', paddingLeft: '12px', color: '#737373', fontStyle: 'italic', margin: '8px 0' }}>{children}</blockquote>,
+  code: ({ inline, className, children }) => {
+    const lang = /language-(\w+)/.exec(className || '')?.[1]
+    if (!inline && lang) return (
+      <div style={{ margin: '8px 0', borderRadius: '8px', overflow: 'hidden', border: '1px solid #e5e5e5' }}>
+        <div style={{ background: '#f5f5f5', padding: '4px 12px', fontSize: '11px', color: '#888', fontFamily: 'monospace', borderBottom: '1px solid #e5e5e5' }}>{lang}</div>
+        <pre style={{ background: '#1a1a2e', color: '#e2e8f0', padding: '12px', margin: 0, overflowX: 'auto', fontSize: '0.8rem', fontFamily: 'monospace', lineHeight: 1.6 }}><code>{String(children).replace(/\n$/, '')}</code></pre>
+      </div>
+    )
+    return <code style={{ background: '#f3f0ff', color: '#6d28d9', padding: '1px 5px', borderRadius: '4px', fontSize: '0.8rem', fontFamily: 'monospace' }}>{children}</code>
+  },
+  table: ({ children }) => <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', margin: '8px 0' }}>{children}</table>,
+  th: ({ children }) => <th style={{ background: '#f5f5f5', border: '1px solid #e5e5e5', padding: '6px 10px', textAlign: 'left', fontWeight: 600 }}>{children}</th>,
+  td: ({ children }) => <td style={{ border: '1px solid #e5e5e5', padding: '6px 10px' }}>{children}</td>,
+}
+
+function SafeMarkdown({ text }) {
+  return (
+    <MarkdownErrorBoundary fallbackText={text}>
+      <Markdown remarkPlugins={[remarkGfm]} components={MD}>{text || ''}</Markdown>
+    </MarkdownErrorBoundary>
+  )
+}
+
+// ── Utility ────────────────────────────────────────────────────
 function StatusDot({ active }) {
-  return <span className={`inline-block w-2 h-2 rounded-full mr-2 ${active ? 'bg-green-500' : 'bg-neutral-300'}`} />
+  return <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: active ? '#22c55e' : '#d4d4d4', marginRight: 6, flexShrink: 0 }} />
 }
 
 function StepList({ steps }) {
   return (
-    <ul className="mt-3 space-y-1 border-t border-neutral-100 pt-3">
+    <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #f5f5f5' }}>
       {steps.map((step, i) => (
-        <li key={i} className="flex items-start gap-2 text-xs text-neutral-500">
-          <span className="text-green-500 mt-0.5 shrink-0">✓</span>
-          <span>{step}</span>
-        </li>
-      ))}
-    </ul>
-  )
-}
-
-function UserBubble({ text, files }) {
-  return (
-    <div className="flex justify-end gap-2 items-start">
-      <div className="max-w-[75%] space-y-1">
-        {files?.length > 0 && (
-          <div className="flex flex-wrap gap-1 justify-end mb-1">
-            {files.map((f, i) => (
-              <span key={i} className="text-[11px] bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full border border-violet-200">
-                📎 {f.name}
-              </span>
-            ))}
-          </div>
-        )}
-        <div className="bg-violet-600 text-white text-sm px-4 py-2.5 rounded-2xl rounded-tr-sm leading-relaxed">
-          {text}
+        <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'flex-start', marginBottom: 4 }}>
+          <span style={{ color: '#22c55e', fontSize: 11, marginTop: 1, flexShrink: 0 }}>✓</span>
+          <span style={{ fontSize: 11, color: '#737373', lineHeight: 1.5 }}>{step}</span>
         </div>
-      </div>
-      <div className="w-7 h-7 rounded-full bg-violet-600 flex items-center justify-center text-white text-xs font-medium shrink-0 mt-0.5">
-        AB
-      </div>
-    </div>
-  )
-}
-
-function AgentBubble({ text, steps, loading }) {
-  return (
-    <div className="flex gap-2 items-start">
-      <div className="w-7 h-7 rounded-full border border-neutral-200 bg-white flex items-center justify-center text-sm shrink-0 mt-0.5">
-        🤖
-      </div>
-      <div className="max-w-[80%] bg-white border border-neutral-200 rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm">
-        {loading ? (
-          <div className="flex gap-1 items-center py-1 px-1">
-            <span className="w-2 h-2 rounded-full bg-neutral-300 animate-bounce [animation-delay:0ms]" />
-            <span className="w-2 h-2 rounded-full bg-neutral-300 animate-bounce [animation-delay:150ms]" />
-            <span className="w-2 h-2 rounded-full bg-neutral-300 animate-bounce [animation-delay:300ms]" />
-          </div>
-        ) : (
-          <>
-            <p className="text-sm text-neutral-800 leading-relaxed whitespace-pre-wrap">{text}</p>
-            {steps?.length > 0 && <StepList steps={steps} />}
-          </>
-        )}
-      </div>
+      ))}
     </div>
   )
 }
@@ -79,58 +88,224 @@ function createSession(title = 'New chat') {
   return { id: Date.now(), title, messages: [] }
 }
 
-function KnowledgeBaseTab({ onNotify }) {
-  const [uploading, setUploading] = useState(false)
-  const [uploadedFiles, setFiles] = useState([])
-  const fileRef = useRef()
+// ── Message Bubbles ────────────────────────────────────────────
+function UserBubble({ text, files, messageIndex, onRewrite, loading }) {
+  const [isEditing, setIsEditing] = useState(false)
+  const [editValue, setEditValue] = useState(text)
 
-  async function handleUpload(e) {
-    const file = e.target.files[0]
-    if (!file) return
-    setUploading(true)
-    try {
-      const formData = new FormData()
-      formData.append('file', file)
-      const res = await fetch(`${API}/api/upload`, { method: 'POST', body: formData })
-      const data = await res.json()
-      setFiles(prev => [...prev, { name: file.name, chunks: data.chunks_stored, date: new Date().toLocaleDateString() }])
-      onNotify(`✓ ${file.name} added — ${data.chunks_stored} chunks stored`)
-    } catch (err) {
-      onNotify(`✗ Upload failed: ${err.message}`)
-    } finally {
-      setUploading(false)
-      e.target.value = ''
-    }
+  function handleSave() {
+    if (!editValue.trim() || loading) return
+    onRewrite(messageIndex, editValue.trim())
+    setIsEditing(false)
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-5 space-y-5">
-      <div>
-        <h2 className="text-sm font-medium text-neutral-800 mb-1">Upload to Memory</h2>
-        <p className="text-xs text-neutral-500 mb-3">PDF or .txt files get chunked and stored in ChromaDB.</p>
-        <button onClick={() => fileRef.current.click()} disabled={uploading}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl border-2 border-dashed border-neutral-300
-            text-sm text-neutral-500 hover:border-violet-400 hover:text-violet-600 transition-colors
-            disabled:opacity-50 w-full justify-center">
-          {uploading ? '⏳ Uploading...' : '📎 Click to upload PDF or .txt'}
-        </button>
-        <input ref={fileRef} type="file" accept=".pdf,.txt" className="hidden" onChange={handleUpload} />
-      </div>
-      {uploadedFiles.length === 0 ? (
-        <div className="text-center py-10 text-neutral-400">
-          <p className="text-3xl mb-2">🗄️</p>
-          <p className="text-sm">No documents uploaded yet</p>
-        </div>
-      ) : uploadedFiles.map((f, i) => (
-        <div key={i} className="flex items-center justify-between bg-white border border-neutral-200 rounded-xl px-4 py-2.5">
-          <div className="flex items-center gap-2">
-            <span>📄</span>
-            <div>
-              <p className="text-xs font-medium text-neutral-800">{f.name}</p>
-              <p className="text-[11px] text-neutral-400">{f.date}</p>
+    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, alignItems: 'flex-start' }}>
+      <div style={{ maxWidth: '75%', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', width: isEditing ? '100%' : 'auto' }}>
+        {files?.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'flex-end', marginBottom: 4 }}>
+            {files.map((f, i) => (
+              <span key={i} style={{ fontSize: 11, background: '#ede9fe', color: '#6d28d9', padding: '2px 8px', borderRadius: 20, border: '1px solid #c4b5fd' }}>
+                📎 {f.name}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {isEditing ? (
+          <div style={{ width: '100%', background: '#fff', border: '1.5px solid #7c3aed', borderRadius: 12, padding: 12, display: 'flex', flexDirection: 'column', gap: 10, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+            <textarea 
+              value={editValue} 
+              onChange={e => setEditValue(e.target.value)}
+              rows={2}
+              style={{ width: '100%', border: 'none', outline: 'none', resize: 'none', fontSize: '0.875rem', fontFamily: 'inherit', color: '#262626', lineHeight: 1.5 }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button onClick={() => { setIsEditing(false); setEditValue(text) }} style={{ background: '#f5f5f5', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: '0.8rem', cursor: 'pointer', color: '#737373', fontWeight: 500 }}>
+                Cancel
+              </button>
+              <button onClick={handleSave} style={{ background: '#7c3aed', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: '0.8rem', cursor: 'pointer', color: '#fff', fontWeight: 600 }}>
+                Save & Resend
+              </button>
             </div>
           </div>
-          <span className="text-[11px] text-green-600 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">{f.chunks} chunks</span>
+        ) : (
+          <>
+            <div style={{ background: '#7c3aed', color: '#fff', fontSize: '0.875rem', padding: '12px 18px', borderRadius: '18px 4px 18px 18px', lineHeight: 1.6, wordBreak: 'break-word' }}>
+              {text}
+            </div>
+            {!loading && (
+              <button onClick={() => setIsEditing(true)} style={{ background: 'none', border: 'none', color: '#7c3aed', fontSize: '0.8rem', cursor: 'pointer', marginTop: 6, padding: '4px 10px', fontWeight: 500, borderRadius: 6 }}>
+                ✏️ Edit
+              </button>
+            )}
+          </>
+        )}
+      </div>
+      <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#7c3aed', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 600, flexShrink: 0, marginTop: 2 }}>AB</div>
+    </div>
+  )
+}
+
+function AgentBubble({ text, steps, loading }) {
+  const [copied, setCopied] = useState(false)
+  function copy() {
+    if (!text) return
+    navigator.clipboard.writeText(text)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+  return (
+    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+      <div style={{ width: 28, height: 28, borderRadius: '50%', border: '1px solid #e5e5e5', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flexShrink: 0, marginTop: 2 }}>🤖</div>
+      <div style={{ maxWidth: '80%', background: '#fff', border: '1px solid #e5e5e5', borderRadius: '4px 18px 18px 18px', padding: '14px 18px', boxShadow: '0 1px 3px rgba(0,0,0,0.06)', position: 'relative' }}>
+        
+        {!loading && text && (
+          <button onClick={copy} style={{ position: 'absolute', top: 12, right: 14, fontSize: '0.8rem', color: copied ? '#16a34a' : '#525252', background: '#fff', border: '1px solid #d4d4d4', borderRadius: 8, cursor: 'pointer', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 4, boxShadow: '0 1px 2px rgba(0,0,0,0.05)', zIndex: 10, fontWeight: 500 }}>
+            {copied ? '✓ Copied' : '⎘ Copy'}
+          </button>
+        )}
+
+        {loading ? (
+          <div style={{ display: 'flex', gap: 4, padding: '6px 0' }}>
+            {[0, 150, 300].map(d => (
+              <span key={d} style={{ width: 8, height: 8, borderRadius: '50%', background: '#d4d4d4', display: 'inline-block', animation: `bounce 1.2s ${d}ms infinite` }} />
+            ))}
+          </div>
+        ) : (
+          <>
+            <div style={{ wordBreak: 'break-word', paddingRight: 60 }}><SafeMarkdown text={text} /></div>
+            {steps?.length > 0 && <StepList steps={steps} />}
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Input Box ──────────────────────────────────────────────────
+function InputBox({ onSend, onStop, loading, autoFocus, fileInputRef, attachments, onFileAttach, onRemoveAttach, inputValue, setInputValue }) {
+  const [listening, setListening] = useState(false)
+  const taRef = useRef()
+
+  useEffect(() => {
+    const ta = taRef.current
+    if (ta && inputValue) { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 160) + 'px' }
+  }, [inputValue])
+
+  function handleInput(e) {
+    setInputValue(e.target.value)
+    const ta = taRef.current
+    if (ta) { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 160) + 'px' }
+  }
+
+  function handleKey(e) {
+    if (e.key === 'Enter' && !e.shiftKey) { 
+      e.preventDefault()
+      if (!loading) send() 
+    }
+  }
+
+  function send() {
+    if ((!inputValue.trim() && attachments.length === 0) || loading) return
+    onSend(inputValue.trim())
+    setInputValue('')
+    if (taRef.current) taRef.current.style.height = 'auto'
+  }
+
+  function startVoice() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SR) { alert('Voice not supported. Use Chrome.'); return }
+    const r = new SR(); r.lang = 'en-US'; r.interimResults = false
+    setListening(true); r.start()
+    r.onresult = e => { setInputValue(p => p + (p ? ' ' : '') + e.results[0][0].transcript) }
+    r.onerror = () => setListening(false)
+    r.onend   = () => setListening(false)
+  }
+
+  return (
+    <div>
+      {attachments.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+          {attachments.map((f, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#ede9fe', border: '1px solid #c4b5fd', color: '#6d28d9', fontSize: 11, padding: '4px 10px', borderRadius: 8 }}>
+              <span>{f.type?.startsWith('image/') ? '🖼️' : '📄'}</span>
+              <span style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+              <button onClick={() => onRemoveAttach(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a78bfa', marginLeft: 2, padding: 2, fontSize: 12 }}>✕</button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', background: '#fff', border: '1.5px solid #e5e5e5', borderRadius: 24, padding: '10px 16px', transition: 'border-color 0.15s' }}
+        onFocus={e => e.currentTarget.style.borderColor = '#7c3aed'}
+        onBlur={e => e.currentTarget.style.borderColor = '#e5e5e5'}>
+        <button onClick={() => fileInputRef.current.click()} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#7c3aed', fontSize: 22, padding: '0 6px', alignSelf: 'flex-end', marginBottom: 3, fontWeight: 'bold' }} title="Attach file">+</button>
+        <input ref={fileInputRef} type="file" accept="image/*,.pdf,.txt" multiple style={{ display: 'none' }} onChange={onFileAttach} />
+        <textarea ref={taRef} value={inputValue} onChange={handleInput} onKeyDown={handleKey}
+          placeholder="Ask anything or enter a research topic..."
+          rows={1} autoFocus={autoFocus}
+          style={{ flex: 1, resize: 'none', border: 'none', outline: 'none', fontSize: '0.875rem', lineHeight: 1.6, background: 'transparent', color: '#262626', fontFamily: 'inherit', padding: '6px 0', maxHeight: 160, overflow: 'auto' }} />
+        
+        <button onClick={startVoice} disabled={loading} style={{ width: 38, height: 38, borderRadius: 12, border: '1px solid #e5e5e5', background: listening ? '#ef4444' : '#fff', color: listening ? '#fff' : '#a3a3a3', cursor: 'pointer', flexShrink: 0, alignSelf: 'flex-end', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }} aria-label="Voice">🎙️</button>
+        
+        {loading ? (
+          <button onClick={onStop}
+            style={{ width: 38, height: 38, borderRadius: 12, background: '#ef4444', color: '#fff', border: 'none', cursor: 'pointer', flexShrink: 0, alignSelf: 'flex-end', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            aria-label="Stop generation">⏹</button>
+        ) : (
+          <button onClick={send} disabled={!inputValue.trim() && attachments.length === 0}
+            style={{ width: 38, height: 38, borderRadius: 12, background: '#7c3aed', color: '#fff', border: 'none', cursor: 'pointer', flexShrink: 0, alignSelf: 'flex-end', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: (!inputValue.trim() && attachments.length === 0) ? 0.3 : 1 }}
+            aria-label="Send">↑</button>
+        )}
+      </div>
+      <p style={{ fontSize: 10, color: '#a3a3a3', textAlign: 'center', marginTop: 6 }}>Enter to send · Shift+Enter for new line · + to attach</p>
+    </div>
+  )
+}
+
+// ── Tab Views ──────────────────────────────────────────────────
+function KnowledgeBaseTab({ onNotify }) {
+  const [uploading, setUploading] = useState(false)
+  const [files, setFiles] = useState([])
+  const ref = useRef()
+
+  async function handleUpload(e) {
+    const file = e.target.files[0]; if (!file) return
+    setUploading(true)
+    try {
+      const fd = new FormData(); fd.append('file', file)
+      const res = await fetch(`${API}/api/upload`, { method: 'POST', body: fd })
+      const data = await res.json()
+      setFiles(p => [...p, { name: file.name, chunks: data.chunks_stored || 0, date: new Date().toLocaleDateString() }])
+      onNotify(`✓ ${file.name} — ${data.chunks_stored || 0} chunks stored`)
+    } catch (err) { onNotify(`✗ Upload failed: ${err.message}`) }
+    finally { setUploading(false); e.target.value = '' }
+  }
+
+  return (
+    <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
+      <p style={{ fontSize: '0.875rem', fontWeight: 500, color: '#111', marginBottom: 4 }}>Upload to Memory</p>
+      <p style={{ fontSize: '0.75rem', color: '#737373', marginBottom: 12 }}>PDF or .txt files get chunked and stored in ChromaDB.</p>
+      <button onClick={() => ref.current.click()} disabled={uploading}
+        style={{ width: '100%', padding: '16px', border: '2px dashed #7c3aed', borderRadius: 12, background: '#fbfbfe', color: '#7c3aed', fontSize: '0.9rem', fontWeight: 500, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+        {uploading ? '⏳ Uploading...' : '📎 Click to upload PDF or .txt'}
+      </button>
+      <input ref={ref} type="file" accept=".pdf,.txt" style={{ display: 'none' }} onChange={handleUpload} />
+      {files.length === 0 ? (
+        <div style={{ textYign: 'center', padding: '40px 0', color: '#a3a3a3' }}>
+          <p style={{ fontSize: 32, marginBottom: 8 }}>🗄️</p>
+          <p style={{ fontSize: '0.875rem' }}>No documents uploaded yet</p>
+        </div>
+      ) : files.map((f, i) => (
+        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff', border: '1px solid #e5e5e5', borderRadius: 12, padding: '12px 16px', marginTop: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+            <span>📄</span>
+            <div style={{ minWidth: 0 }}>
+              <p style={{ fontSize: '0.75rem', fontWeight: 500, color: '#111', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</p>
+              <p style={{ fontSize: 11, color: '#a3a3a3' }}>{f.date}</p>
+            </div>
+          </div>
+          <span style={{ fontSize: 11, color: '#16a34a', background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '4px 10px', borderRadius: 20, flexShrink: 0, marginLeft: 8 }}>{f.chunks} chunks</span>
         </div>
       ))}
     </div>
@@ -138,32 +313,27 @@ function KnowledgeBaseTab({ onNotify }) {
 }
 
 function ReportsTab({ sessions }) {
-  const allReports = sessions.flatMap(s => s.messages.filter(m => m.role === 'agent' && m.text && !m.loading)).reverse()
+  const reports = sessions.flatMap(s => s.messages.filter(m => m.role === 'agent' && m.text && !m.loading)).reverse()
   function download(text, i) {
-    const blob = new Blob([`Report #${i + 1}\n${'='.repeat(50)}\n\n${text}`], { type: 'text/plain' })
     const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = `report_${i + 1}.txt`
-    a.click()
+    a.href = URL.createObjectURL(new Blob([`Report #${i+1}\n${'='.repeat(50)}\n\n${text}`], { type: 'text/plain' }))
+    a.download = `report_${i+1}.txt`; a.click()
   }
   return (
-    <div className="flex-1 overflow-y-auto p-5 space-y-3">
-      <h2 className="text-sm font-medium text-neutral-800 mb-3">Reports ({allReports.length})</h2>
-      {allReports.length === 0 ? (
-        <div className="text-center py-10 text-neutral-400">
-          <p className="text-3xl mb-2">📄</p>
-          <p className="text-sm">No reports yet. Research a topic first.</p>
+    <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
+      <p style={{ fontSize: '0.875rem', fontWeight: 500, color: '#111', marginBottom: 12 }}>Generated Reports ({reports.length})</p>
+      {reports.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '40px 0', color: '#a3a3a3' }}>
+          <p style={{ fontSize: 32, marginBottom: 8 }}>📄</p>
+          <p style={{ fontSize: '0.875rem' }}>No reports yet. Research a topic first.</p>
         </div>
-      ) : allReports.map((msg, i) => (
-        <div key={i} className="bg-white border border-neutral-200 rounded-xl p-4">
-          <div className="flex items-start justify-between gap-2 mb-2">
-            <p className="text-xs font-medium text-neutral-700 line-clamp-2">{msg.text?.slice(0, 80)}...</p>
-            <button onClick={() => download(msg.text, i)}
-              className="text-[11px] shrink-0 text-violet-600 hover:text-violet-800 border border-violet-200 px-2 py-0.5 rounded-lg">
-              ↓ Save
-            </button>
+      ) : reports.map((msg, i) => (
+        <div key={i} style={{ background: '#fff', border: '1px solid #e5e5e5', borderRadius: 12, padding: 16, marginBottom: 10 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 8 }}>
+            <p style={{ fontSize: '0.75rem', color: '#525252', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', margin: 0 }}>{msg.text?.slice(0, 100)}...</p>
+            <button onClick={() => download(msg.text, i)} style={{ fontSize: '0.8rem', color: '#7c3aed', border: '1px solid #c4b5fd', background: 'none', borderRadius: 8, padding: '6px 14px', cursor: 'pointer', flexShrink: 0, fontWeight: 500 }}>↓ Save</button>
           </div>
-          <p className="text-[11px] text-neutral-400">Report #{allReports.length - i}</p>
+          <p style={{ fontSize: 11, color: '#a3a3a3', margin: 0 }}>Report #{reports.length - i}</p>
         </div>
       ))}
     </div>
@@ -176,441 +346,487 @@ function SettingsTab() {
   const [overlap, setOverlap] = useState(50)
   const [saved, setSaved] = useState(false)
   function save() { setSaved(true); setTimeout(() => setSaved(false), 2000) }
+  const card = { background: '#fff', border: '1px solid #e5e5e5', borderRadius: 12, padding: 16, marginBottom: 12 }
+  const label = { fontSize: '0.75rem', color: '#525252', display: 'block', marginBottom: 4 }
   return (
-    <div className="flex-1 overflow-y-auto p-5 space-y-4">
-      <h2 className="text-sm font-medium text-neutral-800">Settings</h2>
-      <div className="bg-white border border-neutral-200 rounded-xl p-4 space-y-4">
-        <p className="text-xs text-neutral-400 uppercase tracking-wide">LLM</p>
-        <div>
-          <label className="text-xs text-neutral-600 block mb-1">Model</label>
-          <select value={model} onChange={e => setModel(e.target.value)}
-            className="w-full border border-neutral-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-violet-400">
-            <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile</option>
-            <option value="llama3-70b-8192">llama3-70b-8192</option>
-            <option value="llama-3.1-8b-instant">llama-3.1-8b-instant</option>
-          </select>
-        </div>
+    <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
+      <p style={{ fontSize: '0.875rem', fontWeight: 500, marginBottom: 12 }}>Agent Settings</p>
+      <div style={card}>
+        <p style={{ fontSize: 11, color: '#a3a3a3', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>LLM</p>
+        <label style={label}>Model</label>
+        <select value={model} onChange={e => setModel(e.target.value)} style={{ width: '100%', border: '1px solid #e5e5e5', borderRadius: 8, padding: '10px 12px', fontSize: '0.875rem', background: '#fff', outline: 'none' }}>
+          <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile</option>
+          <option value="llama3-70b-8192">llama3-70b-8192</option>
+          <option value="llama-3.1-8b-instant">llama-3.1-8b-instant (faster)</option>
+        </select>
       </div>
-      <div className="bg-white border border-neutral-200 rounded-xl p-4 space-y-4">
-        <p className="text-xs text-neutral-400 uppercase tracking-wide">RAG</p>
-        <div>
-          <label className="text-xs text-neutral-600 block mb-1">Chunk size: <span className="font-medium">{chunks}</span></label>
-          <input type="range" min="100" max="1000" step="50" value={chunks} onChange={e => setChunks(Number(e.target.value))} className="w-full" />
-        </div>
-        <div>
-          <label className="text-xs text-neutral-600 block mb-1">Overlap: <span className="font-medium">{overlap}</span></label>
-          <input type="range" min="0" max="200" step="10" value={overlap} onChange={e => setOverlap(Number(e.target.value))} className="w-full" />
-        </div>
+      <div style={card}>
+        <p style={{ fontSize: 11, color: '#a3a3a3', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>RAG Pipeline</p>
+        {[
+          ['Chunk size', chunks, setChunks, 100, 1000, 50],
+          ['Chunk overlap', overlap, setOverlap, 0, 200, 10]
+        ].map(([lbl, val, set, min, max, step]) => (
+          <div key={lbl} style={{ marginBottom: 12 }}>
+            <label style={label}>{lbl}: <strong>{val}</strong></label>
+            <input type="range" min={min} max={max} step={step} value={val} onChange={e => set(Number(e.target.value))} style={{ width: '100%', accentColor: '#7c3aed' }} />
+          </div>
+        ))}
       </div>
-      <button onClick={save}
-        className={`w-full py-2 rounded-xl text-sm font-medium transition-colors ${saved ? 'bg-green-500 text-white' : 'bg-violet-600 hover:bg-violet-700 text-white'}`}>
+      <button onClick={save} style={{ width: '100%', padding: '12px', borderRadius: 12, border: 'none', background: saved ? '#22c55e' : '#7c3aed', color: '#fff', fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer' }}>
         {saved ? '✓ Saved!' : 'Save Settings'}
       </button>
+      <div style={{ ...card, marginTop: 12 }}>
+        <p style={{ fontSize: 11, color: '#a3a3a3', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Stack Info</p>
+        {[
+          ['Frontend', 'React + Vite + Tailwind v4'],
+          ['Backend', 'FastAPI + Python 3.12'],
+          ['LLM', 'Groq ' + model],
+          ['Memory', 'ChromaDB (local)'],
+          ['Agents', 'CrewAI 3-agent']
+        ].map(([k, v]) => (
+          <div key={k} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #f5f5f5' }}>
+            <span style={{ fontSize: '0.75rem', color: '#737373' }}>{k}</span>
+            <span style={{ fontSize: '0.75rem', color: '#262626', fontWeight: 500 }}>{v}</span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
 
+// ── Quick Actions Configuration ────────────────────────────────
 const quickActions = [
-  { label: 'Research',  icon: '🔍', prompt: 'Research ' },
-  { label: 'Summarize', icon: '📝', prompt: 'Summarize ' },
-  { label: 'Explain',   icon: '💡', prompt: 'Explain '  },
-  { label: 'Compare',   icon: '⚖️',  prompt: 'Compare '  },
-  { label: 'Analyze',   icon: '📊', prompt: 'Analyze '  },
+  { id: 'Research',  label: 'Research',  icon: '🔍', textToInsert: 'Research: ' },
+  { id: 'Summarize', label: 'Summarize', icon: '📝', textToInsert: 'Summarize: ' },
+  { id: 'Explain',   label: 'Explain',   icon: '💡', textToInsert: 'Explain: ' },
+  { id: 'Compare',   label: 'Compare',   icon: '⚖️',  textToInsert: 'Compare: ' },
+  { id: 'Analyze',   label: 'Analyze',   icon: '📊', textToInsert: 'Analyze: ' },
 ]
 
-function InputBox({ onSend, loading, initialValue = '', autoFocus = false }) {
-  const [input, setInput]           = useState(initialValue)
-  const [attachments, setAttachments] = useState([])
-  const fileRef                     = useRef()
-  const textareaRef                 = useRef()
-
-  useEffect(() => { if (autoFocus) textareaRef.current?.focus() }, [autoFocus])
-
-  function handleInput(e) {
-    setInput(e.target.value)
-    const ta = textareaRef.current
-    if (ta) { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 160) + 'px' }
-  }
-
-  function handleKey(e) {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
-  }
-
-  function handleFile(e) {
-    setAttachments(prev => [...prev, ...Array.from(e.target.files)])
-    e.target.value = ''
-  }
-
-  function removeAttach(i) { setAttachments(prev => prev.filter((_, idx) => idx !== i)) }
-
-  function send() {
-    if ((!input.trim() && attachments.length === 0) || loading) return
-    onSend(input.trim(), attachments)
-    setInput('')
-    setAttachments([])
-    if (textareaRef.current) textareaRef.current.style.height = 'auto'
-  }
-
-  return (
-    <div className="w-full">
-      {attachments.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mb-2">
-          {attachments.map((f, i) => (
-            <div key={i} className="flex items-center gap-1 bg-violet-50 border border-violet-200 text-violet-700 text-xs px-2 py-1 rounded-lg">
-              <span>{f.type.startsWith('image/') ? '🖼️' : '📄'}</span>
-              <span className="max-w-30 truncate">{f.name}</span>
-              <button onClick={() => removeAttach(i)} className="text-violet-400 hover:text-violet-700 ml-0.5">✕</button>
-            </div>
-          ))}
-        </div>
-      )}
-      <div className="flex gap-2 items-end bg-white border border-neutral-200 rounded-2xl px-3 py-2 focus-within:border-violet-400 transition-colors shadow-sm">
-        <button onClick={() => fileRef.current.click()}
-          className="text-neutral-400 hover:text-violet-600 transition-colors p-1 shrink-0 self-end mb-0.5 text-lg"
-          title="Attach file" aria-label="Attach file">+</button>
-        <input ref={fileRef} type="file" accept="image/*,.pdf,.txt" multiple className="hidden" onChange={handleFile} />
-        <textarea ref={textareaRef} value={input} onChange={handleInput} onKeyDown={handleKey}
-          placeholder="Ask anything or enter a research topic..."
-          rows={1} disabled={loading}
-          className="flex-1 resize-none outline-none text-sm leading-relaxed bg-transparent
-            text-neutral-800 placeholder-neutral-400 disabled:opacity-50 py-1 max-h-40" />
-        <button onClick={send} disabled={loading || (!input.trim() && attachments.length === 0)}
-          className="w-8 h-8 rounded-xl bg-violet-600 hover:bg-violet-700 text-white flex items-center
-            justify-center shrink-0 disabled:opacity-30 disabled:cursor-not-allowed transition-colors self-end text-sm"
-          aria-label="Send">↑</button>
-      </div>
-      <p className="text-[10px] text-neutral-400 mt-1.5 text-center">Enter to send · Shift+Enter for new line · + to attach</p>
-    </div>
-  )
-}
-
+// ── Main App ───────────────────────────────────────────────────
 export default function App() {
   const [sessions, setSessions] = useState(() => {
-    try {
-      const saved = localStorage.getItem('aria_sessions')
-      return saved ? JSON.parse(saved) : [createSession('Welcome')]
-    } catch {
-      return [createSession('Welcome')]
-    }
+    try { const s = localStorage.getItem('aria_sessions'); return s ? JSON.parse(s) : [createSession('Welcome')] }
+    catch { return [createSession('Welcome')] }
   })
-
   const [activeId, setActiveId] = useState(() => {
-    try {
-      const savedId = localStorage.getItem('aria_active_id')
-      return savedId ? Number(savedId) : (sessions[0]?.id || Date.now())
-    } catch {
-      return sessions[0]?.id || Date.now()
-    }
+    try { return Number(localStorage.getItem('aria_active_id')) || sessions[0]?.id }
+    catch { return sessions[0]?.id }
   })
+  const [activeTab, setActiveTab]   = useState('chat')
+  const [attachments, setAttachments] = useState([])
+  const [loading, setLoading]       = useState(false)
+  const [stats, setStats]           = useState({ searches: 0, chunks_stored: 0, reports: 0, tokens_used: '0.0k' })
+  const [notification, setNotification] = useState('')
+  const [chatInputText, setChatInputText] = useState('')
+  
+  const activeControllerRef = useRef(null)
+  const bottomRef    = useRef()
+  const fileInputRef = useRef()
+  
+  const activeSession = sessions.find(s => s.id === activeId) || sessions[0]
+  const isHome = !activeSession || activeSession.messages.length === 0
 
-  // Save sessions to localStorage on every change
-  useEffect(() => {
-    try {
-      localStorage.setItem('aria_sessions', JSON.stringify(sessions))
-    } catch (_) {}
+  useEffect(() => { 
+    if (sessions.length > 0) {
+      localStorage.setItem('aria_sessions', JSON.stringify(sessions)) 
+    }
   }, [sessions])
 
-  // Save active session ID
-  useEffect(() => {
-    try {
-      localStorage.setItem('aria_active_id', activeId)
-    } catch (_) {}
+  useEffect(() => { 
+    localStorage.setItem('aria_active_id', activeId) 
   }, [activeId])
 
-  const [activeTab, setActiveTab]     = useState('chat')
-  const [loading, setLoading]         = useState(false)
-  const [stats, setStats]             = useState({ searches: 0, chunks_stored: 0, reports: 0, tokens_used: '0.0k' })
-  const [notification, setNotification] = useState('')
-  const bottomRef                     = useRef()
-
-  const activeSession = sessions.find(s => s.id === activeId) || sessions[0] || { messages: [] }
-  const isHome        = !activeSession.messages || activeSession.messages.length === 0
-
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [activeSession?.messages, loading])
-  useEffect(() => { fetchStats(); const t = setInterval(fetchStats, 5000); return () => clearInterval(t) }, [])
-
-  async function fetchStats() {
-    try { const res = await fetch(`${API}/api/stats`); setStats(await res.json()) } catch (_) {}
-  }
+  useEffect(() => { 
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) 
+  }, [activeSession?.messages, loading])
+  
+  useEffect(() => {
+    let m = true
+    const fetch_ = async () => { try { const r = await fetch(`${API}/api/stats`); if(r.ok && m) setStats(await r.json()) } catch(_) {} }
+    fetch_(); const t = setInterval(fetch_, 5000); return () => { m = false; clearInterval(t) }
+  }, [])
 
   function notify(msg) { setNotification(msg); setTimeout(() => setNotification(''), 3000) }
-
+  
   function newChat() {
     const s = createSession('New chat')
-    setSessions(prev => [s, ...prev])
+    setSessions(p => [s, ...p])
     setActiveId(s.id)
     setActiveTab('chat')
+    setAttachments([])
+    setChatInputText('')
   }
 
-  function updateSession(id, updater) {
-    setSessions(prev => prev.map(s => s.id === id ? updater(s) : s))
+  function handleFileAttach(e) { setAttachments(p => [...p, ...Array.from(e.target.files)]); e.target.value = '' }
+  function removeAttach(i) { setAttachments(p => p.filter((_, idx) => idx !== i)) }
+
+  function handleStopGeneration() {
+    if (activeControllerRef.current) {
+      activeControllerRef.current.abort()
+      activeControllerRef.current = null
+    }
   }
 
-  async function handleSend(text, files) {
-    if ((!text && files.length === 0) || loading) return
+  function handleQuickActionClick(text) {
+    setChatInputText(text)
+  }
 
-    const userMsg    = { role: 'user', text: text || '(file attached)', files: files.map(f => ({ name: f.name, type: f.type })) }
-    const loadingMsg = { role: 'agent', loading: true }
+  // ── Core Inline Rewrite Execution Handler ───────────────────────
+  async function executeInlineRewrite(targetMsgIndex, newText) {
+    if (loading) return
+    const cid = activeId
+    const controller = new AbortController()
+    activeControllerRef.current = controller
 
-    updateSession(activeId, s => ({
-      ...s,
-      title: s.title === 'New chat' || s.title === 'Welcome' ? (text.slice(0, 30) || s.title) : s.title,
-      messages: [...(s.messages || []), userMsg, loadingMsg]
+    setSessions(prevSessions => prevSessions.map(s => {
+      if (s.id !== cid) return s
+      
+      const adjustedMessages = s.messages.slice(0, targetMsgIndex + 1)
+      adjustedMessages[targetMsgIndex] = { ...adjustedMessages[targetMsgIndex], text: newText }
+      
+      return {
+        ...s,
+        title: targetMsgIndex === 0 ? (newText.slice(0, 30) || s.title) : s.title,
+        messages: [
+          ...adjustedMessages,
+          { role: 'agent', loading: true }
+        ]
+      }
     }))
+
     setLoading(true)
 
     try {
       let report = '', steps = []
+      
+      const r = await fetch(`${API}/api/research`, { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify({ topic: newText }),
+        signal: controller.signal 
+      })
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      const d = await r.json(); report = d.report || ''; steps = [...steps, ...(d.steps || [])]
 
-      const pdfFiles = files.filter(f => f.type === 'application/pdf' || f.name?.endsWith('.txt'))
-      for (const pdfFile of pdfFiles) {
-        const form = new FormData(); form.append('file', pdfFile)
-        try {
-          const res = await fetch(`${API}/api/upload`, { method: 'POST', body: form })
-          const data = await res.json()
-          steps.push(`✓ ${pdfFile.name} stored — ${data.chunks_stored} chunks`)
-        } catch { steps.push(`✗ Failed to store ${pdfFile.name}`) }
-      }
-
-      if (text) {
-        const res  = await fetch(`${API}/api/research`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ topic: text })
+      setSessions(prevSessions => prevSessions.map(s => {
+        if (s.id !== cid) return s
+        const updatedMessages = s.messages.map((msg, idx) => {
+          if (idx === s.messages.length - 1 && msg.loading) {
+            return { role: 'agent', text: report, steps: steps }
+          }
+          return msg
         })
-        const data = await res.json()
-        report = data.report
-        steps  = [...steps, ...(data.steps || [])]
-      } else if (pdfFiles.length > 0) {
-        report = `Stored in memory:\n${pdfFiles.map(f => `• ${f.name}`).join('\n')}\n\nAsk me anything about these documents!`
+        return { ...s, messages: updatedMessages }
+      }))
+
+    } catch(err) {
+      const isChatAborted = err.name === 'AbortError'
+      const fallbackErrorMsg = `Error: ${err.message}\n\nStart backend:\nuvicorn main:app --reload --port 8000`
+      
+      setSessions(prevSessions => prevSessions.map(s => {
+        if (s.id !== cid) return s
+        const updatedMessages = s.messages.map((msg, idx) => {
+          if (idx === s.messages.length - 1 && msg.loading) {
+            return { 
+              role: 'agent', 
+              text: isChatAborted ? '*Generation stopped by user.*' : fallbackErrorMsg, 
+              steps: [] 
+            }
+          }
+          return msg
+        })
+        return { ...s, messages: updatedMessages }
+      }))
+    } finally { 
+      setLoading(false) 
+      activeControllerRef.current = null
+    }
+  }
+
+  // ── Core Async Send Message Logic ────────────────────────────
+  async function sendMessage(text) {
+    if ((!text && attachments.length === 0) || loading) return
+    const cid   = activeId
+    const ctext = text
+    const cfiles = [...attachments]
+    
+    const controller = new AbortController()
+    activeControllerRef.current = controller
+
+    setSessions(prevSessions => prevSessions.map(s => {
+      if (s.id !== cid) return s
+      const isInitialChat = s.title === 'New chat' || s.title === 'Welcome'
+      return {
+        ...s,
+        title: isInitialChat ? (text.slice(0, 30) || s.title) : s.title,
+        messages: [
+          ...s.messages,
+          { role: 'user', text: text || '(file attached)', files: cfiles.map(f => ({ name: f.name, type: f.type })) },
+          { role: 'agent', loading: true }
+        ]
+      }
+    }))
+    
+    setAttachments([]); setLoading(true)
+    
+    try {
+      let report = '', steps = []
+      const pdfs   = cfiles.filter(f => f.type === 'application/pdf' || f.name?.endsWith('.txt'))
+      const images = cfiles.filter(f => f.type?.startsWith('image/'))
+      
+      for (const f of pdfs) {
+        const fd = new FormData(); fd.append('file', f)
+        try { 
+          const r = await fetch(`${API}/api/upload`, { method: 'POST', body: fd, signal: controller.signal })
+          const d = await r.json()
+          steps.push(`✓ ${f.name} — ${d.chunks_stored || 0} chunks stored`) 
+        } catch (fErr) { 
+          if (fErr.name === 'AbortError') throw fErr
+          steps.push(`✗ Failed to store ${f.name}`) 
+        }
       }
 
-      updateSession(activeId, s => {
-        const msgs = [...(s.messages || [])]
-        if (msgs.length > 0) {
-          msgs[msgs.length - 1] = { role: 'agent', text: report, steps }
-        }
-        return { ...s, messages: msgs }
-      })
-      fetchStats()
-    } catch (err) {
-      updateSession(activeId, s => {
-        const msgs = [...(s.messages || [])]
-        if (msgs.length > 0) {
-          msgs[msgs.length - 1] = { role: 'agent', text: `Error: ${err.message}\n\nMake sure backend is running:\nuvicorn main:app --reload --port 8000` }
-        }
-        return { ...s, messages: msgs }
-      })
-    } finally { setLoading(false) }
+      if (ctext) {
+        const r = await fetch(`${API}/api/research`, { 
+          method: 'POST', 
+          headers: { 'Content-Type': 'application/json' }, 
+          body: JSON.stringify({ topic: ctext }),
+          signal: controller.signal 
+        })
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        const d = await r.json(); report = d.report || ''; steps = [...steps, ...(d.steps || [])]
+      } else if (pdfs.length) {
+        report = `Stored in ChromaDB:\n${pdfs.map(f => `• ${f.name}`).join('\n')}\n\nAsk me anything about these documents!`
+      } else if (images.length) {
+        report = `I see ${images.length} image(s) attached. Type your question about them!`
+      }
+      
+      setSessions(prevSessions => prevSessions.map(s => {
+        if (s.id !== cid) return s
+        const updatedMessages = s.messages.map((msg, idx) => {
+          if (idx === s.messages.length - 1 && msg.loading) {
+            return { role: 'agent', text: report, steps: steps }
+          }
+          return msg
+        })
+        return { ...s, messages: updatedMessages }
+      }))
+
+    } catch(err) {
+      const isChatAborted = err.name === 'AbortError'
+      const fallbackErrorMsg = `Error: ${err.message}\n\nStart backend:\nuvicorn main:app --reload --port 8000`
+      
+      setSessions(prevSessions => prevSessions.map(s => {
+        if (s.id !== cid) return s
+        const updatedMessages = s.messages.map((msg, idx) => {
+          if (idx === s.messages.length - 1 && msg.loading) {
+            return { 
+              role: 'agent', 
+              text: isChatAborted ? '*Generation stopped by user.*' : fallbackErrorMsg, 
+              steps: [] 
+            }
+          }
+          return msg
+        })
+        return { ...s, messages: updatedMessages }
+      }))
+    } finally { 
+      setLoading(false) 
+      activeControllerRef.current = null
+    }
   }
 
   const navItems = [
-    { id: 'chat',       label: 'Chat',           icon: '💬' },
+    { id: 'chat',      label: 'Chat',           icon: '💬' },
     { id: 'knowledge', label: 'Knowledge Base',  icon: '🗄️' },
     { id: 'reports',   label: 'Reports',         icon: '📄' },
     { id: 'settings',  label: 'Settings',        icon: '⚙️' },
   ]
 
-  return (
-    <div className="flex h-screen bg-neutral-100 font-sans overflow-hidden text-neutral-900">
+  const sidebar = { width: 220, flexShrink: 0, display: 'flex', flexDirection: 'column', borderRight: '1px solid #e5e5e5', background: '#fafafa', height: '100vh', overflow: 'hidden' }
+  const rightSidebar = { width: 176, flexShrink: 0, display: 'flex', flexDirection: 'column', borderLeft: '1px solid #e5e5e5', background: '#fafafa' }
 
+  return (
+    <div style={{ display: 'flex', height: '100vh', background: '#f5f5f5', fontFamily: '-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif', color: '#111', overflow: 'hidden' }}>
+      <style>{`
+        @keyframes bounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-6px)} }
+        ::-webkit-scrollbar{width:4px} ::-webkit-scrollbar-track{background:transparent} ::-webkit-scrollbar-thumb{background:#e5e5e5;border-radius:4px}
+        button:hover{opacity:0.85; transform: translateY(-0.5px);} * {box-sizing:border-box}
+      `}</style>
+      
       {/* ── LEFT SIDEBAR ──────────────────────────────────── */}
-      <aside className="w-64 bg-neutral-50 border-r border-neutral-200 flex flex-col shrink-0">
-        <div className="px-4 py-4 border-b border-neutral-200 flex items-center gap-2">
-          <div className="w-8 h-8 rounded-xl bg-violet-600 flex items-center justify-center text-white font-bold text-sm shrink-0">
-            A
-          </div>
+      <aside style={sidebar}>
+        <div style={{ padding: '16px', borderBottom: '1px solid #e5e5e5', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 32, height: 32, borderRadius: 10, background: '#7c3aed', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 14, flexShrink: 0 }}>A</div>
           <div>
-            <p className="text-sm font-semibold text-neutral-800">Aria</p>
-            <p className="text-[10px] text-neutral-400">Powered by Groq · CrewAI</p>
+            <p style={{ fontSize: '0.875rem', fontWeight: 600, color: '#111', margin: 0 }}>Aria</p>
+            <p style={{ fontSize: 10, color: '#a3a3a3', margin: 0 }}>Groq · CrewAI · RAG</p>
           </div>
         </div>
-
-        <div className="px-3 pt-3 pb-1">
-          <button onClick={newChat}
-            className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl
-              border border-neutral-200 bg-white hover:bg-violet-50 hover:border-violet-300
-              text-xs text-neutral-600 hover:text-violet-700 transition-colors font-medium">
+        
+        <div style={{ padding: '12px 14px 6px' }}>
+          <button onClick={newChat} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '12px', borderRadius: 12, border: '1px solid #c4b5fd', background: '#fff', color: '#7c3aed', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', boxShadow: '0 1px 3px rgba(124,58,237,0.05)' }}>
             ✏️ New chat
           </button>
         </div>
-
-        <nav className="py-1">
+        
+        <nav style={{ padding: '6px 0' }}>
           {navItems.map(item => (
             <button key={item.id} onClick={() => setActiveTab(item.id)}
-              className={`w-full flex items-center gap-2 px-4 py-2 text-sm text-left transition-colors
-                ${activeTab === item.id
-                  ? 'bg-white text-neutral-900 font-medium border-r-2 border-violet-500'
-                  : 'text-neutral-500 hover:bg-white hover:text-neutral-800'}`}>
-              <span>{item.icon}</span>{item.label}
+              style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '12px 20px', background: activeTab === item.id ? '#fff' : 'transparent', color: activeTab === item.id ? '#7c3aed' : '#525252', fontSize: '0.9rem', fontWeight: activeTab === item.id ? 600 : 400, border: 'none', borderRight: activeTab === item.id ? '3px solid #7c3aed' : '3px solid transparent', cursor: 'pointer', textAlign: 'left' }}>
+              <span style={{ fontSize: '1.05rem' }}>{item.icon}</span>{item.label}
             </button>
           ))}
         </nav>
-
-        {/* Updated Recent section layout with Clear History option */}
-        <div className="px-4 pt-3 pb-1 flex items-center justify-between">
-          <p className="text-[10px] text-neutral-400 uppercase tracking-wide">Recent</p>
-          <button
-            onClick={() => {
-              const fresh = createSession('Welcome')
-              setSessions([fresh])
-              setActiveId(fresh.id)
-              localStorage.clear()
-            }}
-            className="text-[10px] text-neutral-400 hover:text-red-500 transition-colors">
-            Clear
-          </button>
+        
+        <div style={{ padding: '12px 20px 6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <p style={{ fontSize: 10, color: '#a3a3a3', textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 }}>Recent Tabs</p>
+          <button onClick={() => { const s = createSession('Welcome'); setSessions([s]); setActiveId(s.id); localStorage.clear(); setChatInputText('') }}
+            style={{ fontSize: 11, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 500, padding: '2px 6px' }}>Clear</button>
         </div>
-
-        <div className="flex-1 overflow-y-auto">
+        
+        <div style={{ flex: 1, overflowY: 'auto' }}>
           {sessions.map(s => (
             <button key={s.id} onClick={() => { setActiveId(s.id); setActiveTab('chat') }}
-              className={`w-full text-left px-4 py-1.5 text-xs truncate transition-colors
-                ${s.id === activeId && activeTab === 'chat'
-                  ? 'text-violet-700 font-medium bg-violet-50'
-                  : 'text-neutral-500 hover:text-neutral-800 hover:bg-white'}`}>
-              {s.title}
+              style={{ width: '100%', textAlign: 'left', padding: '10px 20px', fontSize: '0.8rem', color: s.id === activeId && activeTab === 'chat' ? '#7c3aed' : '#6b7280', background: s.id === activeId && activeTab === 'chat' ? '#f3f0ff' : 'transparent', fontWeight: s.id === activeId && activeTab === 'chat' ? 600 : 400, border: 'none', cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              📁 {s.title}
             </button>
           ))}
         </div>
-
-        <div className="border-t border-neutral-200 px-4 py-3 flex items-center gap-2 mt-auto">
-          <div className="w-7 h-7 rounded-full bg-violet-600 flex items-center justify-center text-white text-xs font-medium">AB</div>
+        
+        <div style={{ borderTop: '1px solid #e5e5e5', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 30, height: 30, borderRadius: '50%', background: '#7c3aed', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 600, flexShrink: 0 }}>AB</div>
           <div>
-            <p className="text-xs font-medium text-neutral-800">Anurag</p>
-            <p className="text-[10px] text-neutral-400">Intern · Free</p>
+            <p style={{ fontSize: '0.75rem', fontWeight: 500, color: '#111', margin: 0 }}>Anurag</p>
+            <p style={{ fontSize: 10, color: '#a3a3a3', margin: 0 }}>Intern · Free</p>
           </div>
         </div>
       </aside>
 
-      {/* ── MAIN CONTENT AREA ───────────────────────────────── */}
-      <main className="flex-1 flex flex-col min-w-0 bg-neutral-50">
-
-        {/* Topbar */}
-        <div className="px-5 py-3 border-b border-neutral-200 bg-white flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2 text-sm font-medium text-neutral-800">
+      {/* ── MAIN CONTENT ─────────────────────────────────── */}
+      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, background: '#fafafa' }}>
+        <div style={{ padding: '12px 24px', borderBottom: '1px solid #e5e5e5', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', fontSize: '0.875rem', fontWeight: 500, color: '#111' }}>
             <StatusDot active={!loading} />
-            {loading ? 'Agent thinking...' : 'Agent ready'}
+            {loading ? 'Aria is thinking...' : 'Aria ready'}
           </div>
-          <div className="flex gap-2">
-            {['Web', 'RAG', 'CrewAI'].map(tag => (
-              <span key={tag} className="text-[11px] px-2 py-0.5 rounded-full border border-neutral-200 text-neutral-500 bg-neutral-50">{tag}</span>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {['Web', 'RAG', 'CrewAI'].map(t => (
+              <span key={t} style={{ fontSize: 11, padding: '4px 10px', borderRadius: 20, border: '1px solid #e5e5e5', color: '#737373', background: '#fafafa' }}>{t}</span>
             ))}
           </div>
         </div>
 
+        {stats.token_status === 'warning' && (
+          <div style={{ margin: '8px 20px 0', padding: '6px 12px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, fontSize: 11, color: '#92400e' }}>⚠️ 70k+ tokens used today</div>
+        )}
+        {stats.token_status === 'critical' && (
+          <div style={{ margin: '8px 20px 0', padding: '6px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, fontSize: 11, color: '#991b1b' }}>🔴 Near daily token limit</div>
+        )}
         {notification && (
-          <div className="mx-5 mt-3 px-4 py-2 bg-green-50 border border-green-200 rounded-xl text-xs text-green-700 shrink-0">
-            {notification}
-          </div>
+          <div style={{ margin: '8px 20px 0', padding: '8px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, fontSize: '0.75rem', color: '#166534', flexShrink: 0 }}>{notification}</div>
         )}
 
         {activeTab === 'chat' && (
           <>
             {isHome ? (
-              /* ── HOME SCREEN ── */
-              <div className="flex-1 flex flex-col items-center justify-center px-8 pb-8">
-                <div className="text-center mb-8">
-                  <h1 className="text-4xl font-medium text-neutral-800 mb-2">
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '0 32px 48px' }}>
+                <div style={{ textAlign: 'center', marginBottom: 32 }}>
+                  <h1 style={{ fontSize: '2.5rem', fontWeight: 500, color: '#111', margin: '0 0 8px', letterSpacing: '-0.02em' }}>
                     {getGreeting()}, Bro 👋
                   </h1>
-                  <p className="text-neutral-500 text-base">I'm Aria, your AI research buddy 🤖</p>
+                  <p style={{ fontSize: '1rem', color: '#737373', margin: 0 }}>I'm Aria, your AI research buddy 🤖</p>
                 </div>
-
-                <div className="w-full max-w-2xl mb-6">
-                  <InputBox onSend={handleSend} loading={loading} autoFocus />
+                <div style={{ width: '100%', maxWidth: 680, marginBottom: 24 }}>
+                  <InputBox onSend={sendMessage} onStop={handleStopGeneration} loading={loading} autoFocus
+                    fileInputRef={fileInputRef} attachments={attachments}
+                    onFileAttach={handleFileAttach} onRemoveAttach={removeAttach}
+                    inputValue={chatInputText} setInputValue={setChatInputText} />
                 </div>
-
-                <div className="flex flex-wrap gap-2 justify-center max-w-2xl">
-                  {quickActions.map(action => (
-                    <button key={action.label}
-                      onClick={() => {
-                        const ta = document.querySelector('textarea')
-                        if (ta) { ta.value = action.prompt; ta.focus() }
-                      }}
-                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-neutral-200
-                        bg-white hover:bg-violet-50 hover:border-violet-300 text-sm text-neutral-600
-                        hover:text-violet-700 transition-colors">
-                      <span>{action.icon}</span>
-                      {action.label}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'center', maxWidth: 680 }}>
+                  {quickActions.map(a => (
+                    <button key={a.id} onClick={() => handleQuickActionClick(a.textToInsert)}
+                      style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', borderRadius: 24, border: '1px solid #d4d4d4', background: '#fff', color: '#404040', fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer', boxShadow: '0 1px 2px rgba(0,0,0,0.02)' }}>
+                      <span>{a.icon}</span>{a.label}
                     </button>
                   ))}
                 </div>
               </div>
             ) : (
-              /* ── CHAT SCREEN ── */
-              <>
-                <div className="flex-1 overflow-y-auto px-5 py-5 space-y-4">
-                  {activeSession.messages?.map((msg, i) => (
-                    msg.role === 'user'
-                      ? <UserBubble key={i} text={msg.text} files={msg.files} />
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, padding: 20 }}>
+                <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 16, marginBottom: 16 }}>
+                  {activeSession.messages.map((msg, i) => (
+                    msg.role === 'user'         
+                      ? <UserBubble key={i} text={msg.text} files={msg.files} messageIndex={i} onRewrite={executeInlineRewrite} loading={loading} />
                       : <AgentBubble key={i} text={msg.text} steps={msg.steps} loading={msg.loading} />
                   ))}
                   <div ref={bottomRef} />
                 </div>
-
-                <div className="px-5 py-4 border-t border-neutral-200 bg-white shrink-0">
-                  <InputBox onSend={handleSend} loading={loading} />
+                <div style={{ flexShrink: 0 }}>
+                  <InputBox onSend={sendMessage} onStop={handleStopGeneration} loading={loading} autoFocus={false}
+                    fileInputRef={fileInputRef} attachments={attachments}
+                    onFileAttach={handleFileAttach} onRemoveAttach={removeAttach}
+                    inputValue={chatInputText} setInputValue={setChatInputText} />
                 </div>
-              </>
+              </div>
             )}
           </>
         )}
 
         {activeTab === 'knowledge' && <KnowledgeBaseTab onNotify={notify} />}
-        {activeTab === 'reports'   && <ReportsTab sessions={sessions} />}
-        {activeTab === 'settings'  && <SettingsTab />}
+        {activeTab === 'reports' && <ReportsTab sessions={sessions} />}
+        {activeTab === 'settings' && <SettingsTab />}
       </main>
 
-      {/* ── RIGHT SIDEBAR ─────────────────────────────────── */}
-      <aside className="w-44 shrink-0 flex flex-col border-l border-neutral-200 bg-neutral-50">
-        <div className="px-3 py-3 border-b border-neutral-200">
-          <p className="text-[10px] text-neutral-400 uppercase tracking-wide mb-2">Session Stats</p>
+      {/* ── RIGHT SIDEBAR ────────────────────────────────── */}
+      <aside style={rightSidebar}>
+        <div style={{ padding: '12px', borderBottom: '1px solid #e5e5e5' }}>
+          <p style={{ fontSize: 10, color: '#a3a3a3', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 8px' }}>Session Stats</p>
           {[
-            { label: 'Searches',      value: stats.searches      },
+            { label: 'Searches', value: stats.searches },
             { label: 'Chunks stored', value: stats.chunks_stored },
-            { label: 'Reports',       value: stats.reports       },
-            { label: 'Tokens used',   value: stats.tokens_used   },
+            { label: 'Reports', value: stats.reports },
+            { label: 'Tokens used', value: stats.tokens_used },
           ].map(s => (
-            <div key={s.label} className="flex justify-between items-center mb-1.5">
-              <span className="text-xs text-neutral-500">{s.label}</span>
-              <span className="text-xs font-medium text-neutral-800">{s.value}</span>
+            <div key={s.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <span style={{ fontSize: '0.75rem', color: '#737373' }}>{s.label}</span>
+              <span style={{ fontSize: '0.75rem', fontWeight: 500, color: '#262626' }}>{s.value}</span>
             </div>
           ))}
         </div>
 
-        <div className="px-3 py-3 border-b border-neutral-200">
-          <p className="text-[10px] text-neutral-400 uppercase tracking-wide mb-2">Active Tools</p>
+        <div style={{ padding: '12px', borderBottom: '1px solid #e5e5e5' }}>
+          <p style={{ fontSize: 10, color: '#a3a3a3', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 8px' }}>Active Tools</p>
           {[
-            { name: 'Tavily search', active: true  },
-            { name: 'ChromaDB',      active: true  },
-            { name: 'Groq LLaMA',    active: true  },
-            { name: 'PDF reader',    active: false },
-            { name: 'LangSmith',     active: false },
+            { name: 'Tavily search', active: true },
+            { name: 'ChromaDB', active: true },
+            { name: 'Groq LLaMA', active: true },
+            { name: 'PDF reader', active: false },
           ].map(t => (
-            <div key={t.name} className="flex items-center gap-1.5 mb-1.5">
+            <div key={t.name} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
               <StatusDot active={t.active} />
-              <span className="text-xs text-neutral-500">{t.name}</span>
+              <span style={{ fontSize: '0.75rem', color: '#737373', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
             </div>
           ))}
         </div>
 
-        <div className="px-3 py-3">
-          <p className="text-[10px] text-neutral-400 uppercase tracking-wide mb-2">Agents</p>
+        <div style={{ padding: '12px' }}>
+          <p style={{ fontSize: 10, color: '#a3a3a3', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 8px' }}>System Agents</p>
           {[
             { name: 'Researcher', icon: '🔍' },
-            { name: 'Analyst',    icon: '📊' },
-            { name: 'Writer',     icon: '✍️' },
+            { name: 'Writer', icon: '✍️' },
           ].map(a => (
-            <div key={a.name} className="flex items-center gap-1.5 mb-1.5">
+            <div key={a.name} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
               <StatusDot active={true} />
-              <span className="text-xs text-neutral-500">{a.icon} {a.name}</span>
+              <span style={{ fontSize: '0.75rem', color: '#737373' }}>{a.icon} {a.name}</span>
             </div>
           ))}
         </div>
 
-        <div className="mt-auto px-3 py-3 border-t border-neutral-200">
-          <p className="text-[10px] text-neutral-400 uppercase tracking-wide mb-1">Chats</p>
-          <p className="text-xs font-medium text-neutral-700">{sessions.length} session{sessions.length !== 1 ? 's' : ''}</p>
+        <div style={{ borderTop: '1px solid #e5e5e5', padding: '12px', marginTop: 'auto' }}>
+          <p style={{ fontSize: 10, color: '#a3a3a3', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 4px' }}>Local Storage</p>
+          <p style={{ fontSize: '0.75rem', fontWeight: 500, color: '#525252', margin: 0 }}>{sessions.length} Chats Tracked</p>
         </div>
       </aside>
     </div>
