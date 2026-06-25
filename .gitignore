@@ -14,3 +14,6 @@ Backend/chroma_store/
 
 # Secret Token Keys (Never upload these!)
 .env
+.env.local
+Backend/.env
+Backend/.env.local

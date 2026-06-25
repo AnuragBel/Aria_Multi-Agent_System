@@ -71,6 +71,15 @@ function StatusDot({ active }) {
   return <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: active ? '#22c55e' : '#d4d4d4', marginRight: 6, flexShrink: 0 }} />
 }
 
+// ── Quick Actions Configuration ────────────────────────────────
+const quickActions = [
+  { id: 'DeepResearch', label: 'Deep Research', icon: '🔬', textToInsert: 'Deep Research: ' },
+  { id: 'Summarize',    label: 'Summarize',     icon: '📝', textToInsert: 'Summarize: ' },
+  { id: 'Explain',      label: 'Explain',       icon: '💡', textToInsert: 'Explain: ' },
+  { id: 'Compare',      label: 'Compare',       icon: '⚖️',  textToInsert: 'Compare: ' },
+  { id: 'Analyze',      label: 'Analyze',       icon: '📊', textToInsert: 'Analyze: ' },
+]
+
 function StepList({ steps }) {
   return (
     <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #f5f5f5' }}>
@@ -85,7 +94,7 @@ function StepList({ steps }) {
 }
 
 function createSession(title = 'New chat') {
-  return { id: Date.now(), title, messages: [] }
+  return { id: Date.now(), title, messages: [], isPinned: false, projectName: null, projectDescription: null }
 }
 
 // ── Message Bubbles ────────────────────────────────────────────
@@ -97,6 +106,11 @@ function UserBubble({ text, files, messageIndex, onRewrite, loading }) {
     if (!editValue.trim() || loading) return
     onRewrite(messageIndex, editValue.trim())
     setIsEditing(false)
+  }
+
+  function handleRefresh() {
+    if (loading) return
+    onRewrite(messageIndex, text)
   }
 
   return (
@@ -130,16 +144,33 @@ function UserBubble({ text, files, messageIndex, onRewrite, loading }) {
             </div>
           </div>
         ) : (
-          <>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
             <div style={{ background: '#7c3aed', color: '#fff', fontSize: '0.875rem', padding: '12px 18px', borderRadius: '18px 4px 18px 18px', lineHeight: 1.6, wordBreak: 'break-word' }}>
               {text}
             </div>
-            {!loading && (
-              <button onClick={() => setIsEditing(true)} style={{ background: 'none', border: 'none', color: '#7c3aed', fontSize: '0.8rem', cursor: 'pointer', marginTop: 6, padding: '4px 10px', fontWeight: 500, borderRadius: 6 }}>
-                ✏️ Edit
+            
+            <div style={{ display: 'flex', gap: 12, marginTop: 2, paddingRight: 4 }}>
+              <button 
+                onClick={() => setIsEditing(true)} 
+                style={{ background: 'none', border: 'none', color: '#7c3aed', fontSize: 11, cursor: 'pointer', fontWeight: 500 }}>
+                ✏️ 
               </button>
-            )}
-          </>
+
+              <button 
+                onClick={handleRefresh}
+                disabled={loading}
+                style={{ background: 'none', border: 'none', color: '#7c3aed', fontSize: 11, cursor: loading ? 'not-allowed' : 'pointer', fontWeight: 500, opacity: loading ? 0.5 : 1 }}>
+                🔄 
+              </button>
+
+              <button 
+                onClick={() => navigator.clipboard.writeText(text)} 
+                style={{ background: 'none', border: 'none', color: '#7c3aed', fontSize: 11, cursor: 'pointer', fontWeight: 500 }}
+                title="Copy text">
+                ⎘ 
+              </button>
+            </div>
+          </div>
         )}
       </div>
       <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#7c3aed', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 600, flexShrink: 0, marginTop: 2 }}>AB</div>
@@ -147,8 +178,9 @@ function UserBubble({ text, files, messageIndex, onRewrite, loading }) {
   )
 }
 
-function AgentBubble({ text, steps, loading }) {
+function AgentBubble({ text, steps, loading, followupQuestions }) {
   const [copied, setCopied] = useState(false)
+  const [pendingFollowup, setPendingFollowup] = useState(null)
   function copy() {
     if (!text) return
     navigator.clipboard.writeText(text)
@@ -162,7 +194,7 @@ function AgentBubble({ text, steps, loading }) {
         
         {!loading && text && (
           <button onClick={copy} style={{ position: 'absolute', top: 12, right: 14, fontSize: '0.8rem', color: copied ? '#16a34a' : '#525252', background: '#fff', border: '1px solid #d4d4d4', borderRadius: 8, cursor: 'pointer', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 4, boxShadow: '0 1px 2px rgba(0,0,0,0.05)', zIndex: 10, fontWeight: 500 }}>
-            {copied ? '✓ Copied' : '⎘ Copy'}
+            {copied ? '✓ Copied' : '⎘'}
           </button>
         )}
 
@@ -176,6 +208,18 @@ function AgentBubble({ text, steps, loading }) {
           <>
             <div style={{ wordBreak: 'break-word', paddingRight: 60 }}><SafeMarkdown text={text} /></div>
             {steps?.length > 0 && <StepList steps={steps} />}
+            {followupQuestions?.length > 0 && (
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #f0f0f0', display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {followupQuestions.map((q, i) => (
+                  <button key={i} 
+                    onClick={() => { setPendingFollowup(q); window.dispatchEvent(new CustomEvent('aria-followup', { detail: q })); }}
+                    disabled={pendingFollowup === q}
+                    style={{ padding: '6px 12px', background: pendingFollowup === q ? '#ddd6fe' : '#f3f0ff', border: pendingFollowup === q ? '1px solid #a78bfa' : '1px solid #c4b5fd', borderRadius: 20, fontSize: '0.75rem', color: pendingFollowup === q ? '#5b21b6' : '#6d28d9', cursor: pendingFollowup === q ? 'wait' : 'pointer', fontWeight: 500, transition: 'all 0.15s', opacity: pendingFollowup === q ? 0.7 : 1 }}>
+                    {pendingFollowup === q ? '⏳ Sending...' : q}
+                  </button>
+                ))}
+              </div>
+            )}
           </>
         )}
       </div>
@@ -292,7 +336,7 @@ function KnowledgeBaseTab({ onNotify }) {
       </button>
       <input ref={ref} type="file" accept=".pdf,.txt" style={{ display: 'none' }} onChange={handleUpload} />
       {files.length === 0 ? (
-        <div style={{ textYign: 'center', padding: '40px 0', color: '#a3a3a3' }}>
+        <div style={{ textAlign: 'center', padding: '40px 0', color: '#a3a3a3' }}>
           <p style={{ fontSize: 32, marginBottom: 8 }}>🗄️</p>
           <p style={{ fontSize: '0.875rem' }}>No documents uploaded yet</p>
         </div>
@@ -340,12 +384,15 @@ function ReportsTab({ sessions }) {
   )
 }
 
-function SettingsTab() {
-  const [model, setModel] = useState('llama-3.3-70b-versatile')
-  const [chunks, setChunks] = useState(500)
-  const [overlap, setOverlap] = useState(50)
+function SettingsTab({ model, onModelChange, chunks, onChunksChange, overlap, onOverlapChange }) {
   const [saved, setSaved] = useState(false)
-  function save() { setSaved(true); setTimeout(() => setSaved(false), 2000) }
+  const savedTimer = useRef(null)
+  function save() {
+    setSaved(true)
+    if (savedTimer.current) clearTimeout(savedTimer.current)
+    savedTimer.current = setTimeout(() => { setSaved(false); savedTimer.current = null }, 2000)
+  }
+  useEffect(() => () => { if (savedTimer.current) clearTimeout(savedTimer.current) }, [])
   const card = { background: '#fff', border: '1px solid #e5e5e5', borderRadius: 12, padding: 16, marginBottom: 12 }
   const label = { fontSize: '0.75rem', color: '#525252', display: 'block', marginBottom: 4 }
   return (
@@ -354,7 +401,7 @@ function SettingsTab() {
       <div style={card}>
         <p style={{ fontSize: 11, color: '#a3a3a3', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>LLM</p>
         <label style={label}>Model</label>
-        <select value={model} onChange={e => setModel(e.target.value)} style={{ width: '100%', border: '1px solid #e5e5e5', borderRadius: 8, padding: '10px 12px', fontSize: '0.875rem', background: '#fff', outline: 'none' }}>
+        <select value={model} onChange={e => onModelChange(e.target.value)} style={{ width: '100%', border: '1px solid #e5e5e5', borderRadius: 8, padding: '10px 12px', fontSize: '0.875rem', background: '#fff', outline: 'none' }}>
           <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile</option>
           <option value="llama3-70b-8192">llama3-70b-8192</option>
           <option value="llama-3.1-8b-instant">llama-3.1-8b-instant (faster)</option>
@@ -363,8 +410,8 @@ function SettingsTab() {
       <div style={card}>
         <p style={{ fontSize: 11, color: '#a3a3a3', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>RAG Pipeline</p>
         {[
-          ['Chunk size', chunks, setChunks, 100, 1000, 50],
-          ['Chunk overlap', overlap, setOverlap, 0, 200, 10]
+          ['Chunk size', chunks, onChunksChange, 100, 1000, 50],
+          ['Chunk overlap', overlap, onOverlapChange, 0, 200, 10]
         ].map(([lbl, val, set, min, max, step]) => (
           <div key={lbl} style={{ marginBottom: 12 }}>
             <label style={label}>{lbl}: <strong>{val}</strong></label>
@@ -394,248 +441,385 @@ function SettingsTab() {
   )
 }
 
-// ── Quick Actions Configuration ────────────────────────────────
-const quickActions = [
-  { id: 'Research',  label: 'Research',  icon: '🔍', textToInsert: 'Research: ' },
-  { id: 'Summarize', label: 'Summarize', icon: '📝', textToInsert: 'Summarize: ' },
-  { id: 'Explain',   label: 'Explain',   icon: '💡', textToInsert: 'Explain: ' },
-  { id: 'Compare',   label: 'Compare',   icon: '⚖️',  textToInsert: 'Compare: ' },
-  { id: 'Analyze',   label: 'Analyze',   icon: '📊', textToInsert: 'Analyze: ' },
-]
+// ── Project Modal ───────────────────────────────────────────────
+function ProjectModal({ session, onSave, onClose }) {
+  const [name, setName] = useState(session?.projectName || '')
+  const [description, setDescription] = useState(session?.projectDescription || '')
 
-// ── Main App ───────────────────────────────────────────────────
-export default function App() {
-  const [sessions, setSessions] = useState(() => {
-    try { const s = localStorage.getItem('aria_sessions'); return s ? JSON.parse(s) : [createSession('Welcome')] }
-    catch { return [createSession('Welcome')] }
-  })
-  const [activeId, setActiveId] = useState(() => {
-    try { return Number(localStorage.getItem('aria_active_id')) || sessions[0]?.id }
-    catch { return sessions[0]?.id }
-  })
-  const [activeTab, setActiveTab]   = useState('chat')
-  const [attachments, setAttachments] = useState([])
-  const [loading, setLoading]       = useState(false)
-  const [stats, setStats]           = useState({ searches: 0, chunks_stored: 0, reports: 0, tokens_used: '0.0k' })
-  const [notification, setNotification] = useState('')
-  const [chatInputText, setChatInputText] = useState('')
-  
-  const activeControllerRef = useRef(null)
-  const bottomRef    = useRef()
-  const fileInputRef = useRef()
-  
-  const activeSession = sessions.find(s => s.id === activeId) || sessions[0]
-  const isHome = !activeSession || activeSession.messages.length === 0
-
-  useEffect(() => { 
-    if (sessions.length > 0) {
-      localStorage.setItem('aria_sessions', JSON.stringify(sessions)) 
-    }
-  }, [sessions])
-
-  useEffect(() => { 
-    localStorage.setItem('aria_active_id', activeId) 
-  }, [activeId])
-
-  useEffect(() => { 
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) 
-  }, [activeSession?.messages, loading])
-  
-  useEffect(() => {
-    let m = true
-    const fetch_ = async () => { try { const r = await fetch(`${API}/api/stats`); if(r.ok && m) setStats(await r.json()) } catch(_) {} }
-    fetch_(); const t = setInterval(fetch_, 5000); return () => { m = false; clearInterval(t) }
-  }, [])
-
-  function notify(msg) { setNotification(msg); setTimeout(() => setNotification(''), 3000) }
-  
-  function newChat() {
-    const s = createSession('New chat')
-    setSessions(p => [s, ...p])
-    setActiveId(s.id)
-    setActiveTab('chat')
-    setAttachments([])
-    setChatInputText('')
+  function handleSave() {
+    onSave({ projectName: name.trim() || null, projectDescription: description.trim() || null })
+    onClose()
   }
 
-  function handleFileAttach(e) { setAttachments(p => [...p, ...Array.from(e.target.files)]); e.target.value = '' }
-  function removeAttach(i) { setAttachments(p => p.filter((_, idx) => idx !== i)) }
+  function handleClear() {
+    onSave({ projectName: null, projectDescription: null })
+    onClose()
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}>
+      <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: '100%', maxWidth: 480, boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: '#111', margin: 0 }}>📁 Project Context</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#a3a3a3', padding: 4 }}>✕</button>
+        </div>
+
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: 'block', fontSize: '0.75rem', color: '#737373', marginBottom: 6, fontWeight: 500 }}>Project Name</label>
+          <input
+            type="text"
+            value={name}
+            onChange={e => setName(e.target.value)}
+            placeholder="e.g., Made In India: A Titan Story"
+            style={{ width: '100%', padding: '10px 12px', border: '1px solid #e5e5e5', borderRadius: 8, fontSize: '0.875rem', outline: 'none', boxSizing: 'border-box' }}
+          />
+        </div>
+
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ display: 'block', fontSize: '0.75rem', color: '#737373', marginBottom: 6, fontWeight: 500 }}>Description (optional)</label>
+          <textarea
+            value={description}
+            onChange={e => setDescription(e.target.value)}
+            placeholder="Brief description of the project..."
+            rows={3}
+            style={{ width: '100%', padding: '10px 12px', border: '1px solid #e5e5e5', borderRadius: 8, fontSize: '0.875rem', outline: 'none', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit' }}
+          />
+        </div>
+
+        <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+          {session?.projectName && (
+            <button onClick={handleClear} style={{ padding: '10px 16px', border: '1px solid #fecaca', background: '#fff', color: '#dc2626', borderRadius: 8, fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer' }}>
+              Clear Project
+            </button>
+          )}
+          <button onClick={handleSave} style={{ padding: '10px 20px', border: 'none', background: '#7c3aed', color: '#fff', borderRadius: 8, fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}>
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Main App Component ─────────────────────────────────────────
+export default function App() {
+  const [sessions, setSessions] = useState(() => {
+    const saved = localStorage.getItem('aria_sessions')
+    return saved ? JSON.parse(saved) : [createSession('Welcome')]
+  })
+  const [activeId, setActiveId] = useState(() => sessions[0]?.id || Date.now())
+  const [activeTab, setActiveTab] = useState('chat')
+  const [chatInputText, setChatInputText] = useState('')
+  const [attachments, setAttachments] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [notification, setNotification] = useState('')
+  const [searchQuery, setSearchQuery] = useState('') // New Search State For Chat Filtering
+  const [projectModalOpen, setProjectModalOpen] = useState(false)
+   
+  // High level active menu tracking state to prevent invalid nested hooks
+  const [activeMenuId, setActiveMenuId] = useState(null)
+
+  const [settingsModel, setSettingsModel] = useState(() => localStorage.getItem('aria_model') || 'llama-3.3-70b-versatile')
+  const [chunkSize, setChunkSize] = useState(() => Number(localStorage.getItem('aria_chunk_size')) || 500)
+  const [chunkOverlap, setChunkOverlap] = useState(() => Number(localStorage.getItem('aria_chunk_overlap')) || 50)
+
+  const [stats, setStats] = useState({
+    searches: 0,
+    chunks_stored: 0,
+    reports: 0,
+    tokens_used: 0,
+    token_status: 'normal'
+  })
+
+  const bottomRef = useRef(null)
+  const fileInputRef = useRef(null)
+  const activeControllerRef = useRef(null)
+  const sendMessageRef = useRef(null)
+
+  useEffect(() => {
+    localStorage.setItem('aria_sessions', JSON.stringify(sessions))
+  }, [sessions])
+
+  useEffect(() => {
+    localStorage.setItem('aria_model', settingsModel)
+  }, [settingsModel])
+
+  useEffect(() => {
+    localStorage.setItem('aria_chunk_size', String(chunkSize))
+  }, [chunkSize])
+
+  useEffect(() => {
+    localStorage.setItem('aria_chunk_overlap', String(chunkOverlap))
+  }, [chunkOverlap])
+
+  useEffect(() => {
+    if (activeTab === 'chat') {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [sessions, activeTab])
+
+  useEffect(() => {
+    let mounted = true
+    async function pollStats() {
+      try {
+        const res = await fetch(`${API}/api/stats`)
+        if (!res.ok) return
+        const data = await res.json()
+        if (!mounted) return
+        const tokens = parseFloat(data.tokens_used) || 0
+        setStats({
+          searches: data.searches ?? 0,
+          chunks_stored: data.chunks_stored ?? 0,
+          reports: data.reports ?? 0,
+          tokens_used: tokens,
+          token_status: tokens > 90 ? 'critical' : tokens > 70 ? 'warning' : 'normal'
+        })
+      } catch { /* server not available */ }
+    }
+    pollStats()
+    const interval = setInterval(pollStats, 10000)
+    return () => { mounted = false; clearInterval(interval) }
+  }, [])
+
+  useEffect(() => {
+    function handleFollowup(e) {
+      sendMessageRef.current?.(e.detail)
+    }
+    window.addEventListener('aria-followup', handleFollowup)
+    return () => window.removeEventListener('aria-followup', handleFollowup)
+  }, [])
+
+  const activeSession = sessions.find(s => s.id === activeId) || sessions[0] || createSession()
+  const isHome = activeSession.messages.length === 0
+
+  // Filtered sessions computation based on search input
+  const filteredSessions = sessions.filter(s => 
+    s.title.toLowerCase().includes(searchQuery.toLowerCase())
+  )
+
+  function notify(msg) {
+    setNotification(msg)
+    setTimeout(() => setNotification(''), 4000)
+  }
+
+  function newChat() {
+    const s = createSession()
+    setSessions(prev => [s, ...prev])
+    setActiveId(s.id)
+    setActiveTab('chat')
+    setSearchQuery('') // Clear search when a new chat opens
+  }
 
   function handleStopGeneration() {
     if (activeControllerRef.current) {
       activeControllerRef.current.abort()
-      activeControllerRef.current = null
     }
   }
 
-  function handleQuickActionClick(text) {
-    setChatInputText(text)
+  function handleFileAttach(e) {
+    const files = Array.from(e.target.files)
+    setAttachments(prev => [...prev, ...files])
+    e.target.value = ''
   }
 
-  // ── Core Inline Rewrite Execution Handler ───────────────────────
-  async function executeInlineRewrite(targetMsgIndex, newText) {
-    if (loading) return
-    const cid = activeId
-    const controller = new AbortController()
-    activeControllerRef.current = controller
+  function removeAttach(idx) {
+    setAttachments(prev => prev.filter((_, i) => i !== idx))
+  }
 
-    setSessions(prevSessions => prevSessions.map(s => {
-      if (s.id !== cid) return s
-      
-      const adjustedMessages = s.messages.slice(0, targetMsgIndex + 1)
-      adjustedMessages[targetMsgIndex] = { ...adjustedMessages[targetMsgIndex], text: newText }
-      
-      return {
-        ...s,
-        title: targetMsgIndex === 0 ? (newText.slice(0, 30) || s.title) : s.title,
-        messages: [
-          ...adjustedMessages,
-          { role: 'agent', loading: true }
-        ]
+  function handleQuickActionClick(action) {
+    setChatInputText(action.textToInsert)
+  }
+
+  function handlePinSession(id) {
+    setSessions(prev => {
+      const updated = prev.map(s => s.id === id ? { ...s, isPinned: !s.isPinned } : s)
+      return [...updated].sort((a, b) => (b.isPinned ? 1 : 0) - (a.isPinned ? 1 : 0))
+    })
+  }
+
+  function handleRenameSession(id) {
+    const target = sessions.find(s => s.id === id)
+    const newTitle = prompt('Rename Chat Session:', target?.title || '')
+    if (newTitle && newTitle.trim()) {
+      setSessions(prev => prev.map(s => s.id === id ? { ...s, title: newTitle.trim() } : s))
+    }
+  }
+
+  function handleDeleteSession(id) {
+    if (sessions.length <= 1) {
+      alert('Cannot delete the last remaining chat session.')
+      return
+    }
+    if (confirm('Are you sure you want to delete this chat?')) {
+      setSessions(prev => prev.filter(s => s.id !== id))
+      if (activeId === id) {
+        const remaining = sessions.filter(s => s.id !== id)
+        setActiveId(remaining[0].id)
       }
-    }))
+    }
+  }
 
-    setLoading(true)
+  function openProjectModal() {
+    setProjectModalOpen(true)
+  }
 
-    try {
-      let report = '', steps = []
+  function closeProjectModal() {
+    setProjectModalOpen(false)
+  }
+
+  function handleProjectSave(name, description) {
+    setSessions(prev => prev.map(s => 
+      s.id === activeId ? { ...s, projectName: name.trim() || null, projectDescription: description.trim() || null } : s
+    ))
+    closeProjectModal()
+    notify(`✓ Project context set: ${name.trim() || '(cleared)'}`)
+  }
+
+  function handleProjectClear() {
+    setSessions(prev => prev.map(s => 
+      s.id === activeId ? { ...s, projectName: null, projectDescription: null } : s
+    ))
+    closeProjectModal()
+    notify('✓ Project context cleared')
+  }
+
+  function executeInlineRewrite(messageIndex, newText) {
+    if (loading) return
+    const truncatedMessages = activeSession.messages.slice(0, messageIndex)
+    setSessions(prev => prev.map(s => s.id === activeId ? { ...s, messages: truncatedMessages } : s))
+    sendMessage(newText)
+  }
+
+  async function sendMessage(overrideText) {
+  sendMessageRef.current = sendMessage
+  const textToSend = overrideText || chatInputText;
+  if (!textToSend.trim() && attachments.length === 0) return;
+
+  const currentAttachments = [...attachments];
+  setAttachments([]);
+  setLoading(true);
+
+  const userMsg = { 
+    role: 'user', 
+    text: textToSend, 
+    files: currentAttachments.map(f => ({ name: f.name })) 
+  };
+  const placeholderAgentMsg = { role: 'agent', text: '', steps: [], loading: true };
+
+  let cid = activeId;
+  setSessions(prevSessions => prevSessions.map(s => {
+    if (s.id !== cid) return s;
+    const isFirstMsg = s.messages.length === 0;
+    return {
+      ...s,
+      title: isFirstMsg ? (textToSend.slice(0, 24) || 'File Upload Chat') : s.title,
+      messages: [...s.messages, userMsg, placeholderAgentMsg]
+    };
+  }));
+
+  const controller = new AbortController();
+  activeControllerRef.current = controller;
+
+  let report = '';
+  let steps = [];
+  let followupQuestions = [];
+  let ctext = textToSend;
+  let finalDeepOption = false;
+
+  if (ctext.toLowerCase().startsWith('deep research:')) {
+    finalDeepOption = true;
+    ctext = ctext.slice(14).trim();
+  }
+
+  try {
+    // ── CORRECTED ASYNC LOOP FOR UPLOADS ───────────────────────
+    for (const fileObj of currentAttachments) {
+      steps.push(`Uploading ${fileObj.name} to ingestion pipeline...`);
       
+      const fd = new FormData();
+      fd.append('file', fileObj);
+
+      const fRes = await fetch(`${API}/api/upload`, { 
+        method: 'POST', 
+        body: fd, 
+        signal: controller.signal 
+      });
+      
+      if (!fRes.ok) {
+        throw new Error(`Upload failed with status ${fRes.status}`);
+      }
+      
+      const d = await fRes.json();
+      steps.push(`✓ ${fileObj.name} — ${d.chunks_stored || 0} chunks stored`); 
+    }
+
+    // ── RESEARCH EXECUTION ─────────────────────────────────────
+    if (ctext) {
       const r = await fetch(`${API}/api/research`, { 
         method: 'POST', 
         headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify({ topic: newText }),
+        body: JSON.stringify({
+        topic: ctext,
+        deep_research: finalDeepOption,
+        is_followup: activeSession.messages.length > 2,
+        history: activeSession.messages.slice(-6).map(m => ({
+        role: m.role === 'user' ? 'user' : 'assistant',
+        content: m.text
+  })),
+        project_context: activeSession.projectName ? {
+          name: activeSession.projectName,
+          description: activeSession.projectDescription
+        } : null
+}),
         signal: controller.signal 
-      })
-      if (!r.ok) throw new Error(`HTTP ${r.status}`)
-      const d = await r.json(); report = d.report || ''; steps = [...steps, ...(d.steps || [])]
-
-      setSessions(prevSessions => prevSessions.map(s => {
-        if (s.id !== cid) return s
-        const updatedMessages = s.messages.map((msg, idx) => {
-          if (idx === s.messages.length - 1 && msg.loading) {
-            return { role: 'agent', text: report, steps: steps }
-          }
-          return msg
-        })
-        return { ...s, messages: updatedMessages }
-      }))
-
-    } catch(err) {
-      const isChatAborted = err.name === 'AbortError'
-      const fallbackErrorMsg = `Error: ${err.message}\n\nStart backend:\nuvicorn main:app --reload --port 8000`
-      
-      setSessions(prevSessions => prevSessions.map(s => {
-        if (s.id !== cid) return s
-        const updatedMessages = s.messages.map((msg, idx) => {
-          if (idx === s.messages.length - 1 && msg.loading) {
-            return { 
-              role: 'agent', 
-              text: isChatAborted ? '*Generation stopped by user.*' : fallbackErrorMsg, 
-              steps: [] 
-            }
-          }
-          return msg
-        })
-        return { ...s, messages: updatedMessages }
-      }))
-    } finally { 
-      setLoading(false) 
-      activeControllerRef.current = null
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const d = await r.json();
+      report = d.report || '';
+      steps = [...steps, ...(d.steps || [])];
+      followupQuestions = d.followup_questions || [];
+    } else if (currentAttachments.length > 0) {
+      report = `I've processed your files successfully and saved them to my RAG memory layer! \n\n${currentAttachments.map(f => `• **${f.name}**`).join('\n')}\n\nWhat would you like me to analyze or look up from these documents, bro? 📊`;
     }
-  }
-
-  // ── Core Async Send Message Logic ────────────────────────────
-  async function sendMessage(text) {
-    if ((!text && attachments.length === 0) || loading) return
-    const cid   = activeId
-    const ctext = text
-    const cfiles = [...attachments]
     
-    const controller = new AbortController()
-    activeControllerRef.current = controller
-
+    // ── UPDATE MESSAGE STATE ───────────────────────────────────
     setSessions(prevSessions => prevSessions.map(s => {
-      if (s.id !== cid) return s
-      const isInitialChat = s.title === 'New chat' || s.title === 'Welcome'
+      if (s.id !== cid) return s;
       return {
         ...s,
-        title: isInitialChat ? (text.slice(0, 30) || s.title) : s.title,
-        messages: [
-          ...s.messages,
-          { role: 'user', text: text || '(file attached)', files: cfiles.map(f => ({ name: f.name, type: f.type })) },
-          { role: 'agent', loading: true }
-        ]
-      }
-    }))
-    
-    setAttachments([]); setLoading(true)
-    
-    try {
-      let report = '', steps = []
-      const pdfs   = cfiles.filter(f => f.type === 'application/pdf' || f.name?.endsWith('.txt'))
-      const images = cfiles.filter(f => f.type?.startsWith('image/'))
-      
-      for (const f of pdfs) {
-        const fd = new FormData(); fd.append('file', f)
-        try { 
-          const r = await fetch(`${API}/api/upload`, { method: 'POST', body: fd, signal: controller.signal })
-          const d = await r.json()
-          steps.push(`✓ ${f.name} — ${d.chunks_stored || 0} chunks stored`) 
-        } catch (fErr) { 
-          if (fErr.name === 'AbortError') throw fErr
-          steps.push(`✗ Failed to store ${f.name}`) 
-        }
-      }
-
-      if (ctext) {
-        const r = await fetch(`${API}/api/research`, { 
-          method: 'POST', 
-          headers: { 'Content-Type': 'application/json' }, 
-          body: JSON.stringify({ topic: ctext }),
-          signal: controller.signal 
-        })
-        if (!r.ok) throw new Error(`HTTP ${r.status}`)
-        const d = await r.json(); report = d.report || ''; steps = [...steps, ...(d.steps || [])]
-      } else if (pdfs.length) {
-        report = `Stored in ChromaDB:\n${pdfs.map(f => `• ${f.name}`).join('\n')}\n\nAsk me anything about these documents!`
-      } else if (images.length) {
-        report = `I see ${images.length} image(s) attached. Type your question about them!`
-      }
-      
-      setSessions(prevSessions => prevSessions.map(s => {
-        if (s.id !== cid) return s
-        const updatedMessages = s.messages.map((msg, idx) => {
+        messages: s.messages.map((msg, idx) => {
           if (idx === s.messages.length - 1 && msg.loading) {
-            return { role: 'agent', text: report, steps: steps }
+            return { role: 'agent', text: report, steps: steps, loading: false, followupQuestions };
           }
-          return msg
+          return msg;
         })
-        return { ...s, messages: updatedMessages }
-      }))
+      };
+    }));
 
-    } catch(err) {
-      const isChatAborted = err.name === 'AbortError'
-      const fallbackErrorMsg = `Error: ${err.message}\n\nStart backend:\nuvicorn main:app --reload --port 8000`
-      
-      setSessions(prevSessions => prevSessions.map(s => {
-        if (s.id !== cid) return s
-        const updatedMessages = s.messages.map((msg, idx) => {
-          if (idx === s.messages.length - 1 && msg.loading) {
-            return { 
-              role: 'agent', 
-              text: isChatAborted ? '*Generation stopped by user.*' : fallbackErrorMsg, 
-              steps: [] 
-            }
-          }
-          return msg
-        })
-        return { ...s, messages: updatedMessages }
-      }))
-    } finally { 
-      setLoading(false) 
-      activeControllerRef.current = null
+  } catch(err) {
+    if (err.name === 'AbortError') {
+      report = '*Generation stopped by user.*';
+    } else {
+      report = `✗ Request failed: ${err.message}\n\nMake sure your FastAPI server is active on port 8000.`;
     }
+    
+    setSessions(prevSessions => prevSessions.map(s => {
+      if (s.id !== cid) return s;
+      return {
+        ...s,
+        messages: s.messages.map((msg, idx) => {
+          if (idx === s.messages.length - 1 && msg.loading) {
+            return { role: 'agent', text: report, steps: [], loading: false };
+          }
+          return msg;
+        })
+      };
+    }));
+  } finally { 
+    setLoading(false); 
+    activeControllerRef.current = null;
   }
+}
 
   const navItems = [
     { id: 'chat',      label: 'Chat',           icon: '💬' },
@@ -671,6 +855,13 @@ export default function App() {
           </button>
         </div>
         
+        <div style={{ padding: '0 14px 6px' }}>
+          <button onClick={openProjectModal} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '10px', borderRadius: 10, border: '1px solid #e5e5e5', background: '#fff', color: '#525252', fontSize: '0.85rem', fontWeight: 500, cursor: 'pointer' }}>
+            📁 Project
+            {activeSession.projectName && <span style={{ background: '#7c3aed', color: '#fff', fontSize: '0.65rem', padding: '2px 6px', borderRadius: 10, fontWeight: 600, marginLeft: 4 }}>{activeSession.projectName.slice(0, 12)}</span>}
+          </button>
+        </div>
+        
         <nav style={{ padding: '6px 0' }}>
           {navItems.map(item => (
             <button key={item.id} onClick={() => setActiveTab(item.id)}
@@ -679,20 +870,98 @@ export default function App() {
             </button>
           ))}
         </nav>
+
+        {/* 🔍 ADDED: CHAT SEARCH BAR CONTAINER */}
+        <div style={{ padding: '4px 14px 8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', background: '#fff', border: '1px solid #e5e5e5', borderRadius: '8px', padding: '4px 10px', width: '100%' }}>
+            <span style={{ fontSize: '0.85rem', color: '#a3a3a3', marginRight: '6px', userSelect: 'none' }}>🔍</span>
+            <input 
+              type="text"
+              placeholder="Search history..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{ flex: 1, border: 'none', outline: 'none', fontSize: '0.8rem', background: 'transparent', color: '#262626', width: '100%' }}
+            />
+            {searchQuery && (
+              <button 
+                onClick={() => setSearchQuery('')}
+                style={{ background: 'none', border: 'none', color: '#a3a3a3', cursor: 'pointer', fontSize: '0.75rem', padding: '2px 4px', fontWeight: 'bold' }}>
+                ✕
+              </button>
+            )}
+          </div>
+        </div>
         
-        <div style={{ padding: '12px 20px 6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <p style={{ fontSize: 10, color: '#a3a3a3', textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 }}>Recent Tabs</p>
-          <button onClick={() => { const s = createSession('Welcome'); setSessions([s]); setActiveId(s.id); localStorage.clear(); setChatInputText('') }}
+        <div style={{ padding: '6px 20px 4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <p style={{ fontSize: 10, color: '#a3a3a3', textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 }}>Recent Chats</p>
+          <button onClick={() => { const s = createSession('Welcome'); setSessions([s]); setActiveId(s.id); localStorage.clear(); setChatInputText(''); setSearchQuery('') }}
             style={{ fontSize: 11, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 500, padding: '2px 6px' }}>Clear</button>
         </div>
         
         <div style={{ flex: 1, overflowY: 'auto' }}>
-          {sessions.map(s => (
-            <button key={s.id} onClick={() => { setActiveId(s.id); setActiveTab('chat') }}
-              style={{ width: '100%', textAlign: 'left', padding: '10px 20px', fontSize: '0.8rem', color: s.id === activeId && activeTab === 'chat' ? '#7c3aed' : '#6b7280', background: s.id === activeId && activeTab === 'chat' ? '#f3f0ff' : 'transparent', fontWeight: s.id === activeId && activeTab === 'chat' ? 600 : 400, border: 'none', cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              📁 {s.title}
-            </button>
-          ))}
+          {filteredSessions.length === 0 ? (
+            <p style={{ fontSize: '0.75rem', color: '#a3a3a3', padding: '12px 20px', margin: 0, fontStyle: 'italic' }}>No chats found</p>
+          ) : (
+            filteredSessions.map(s => {
+              const isMenuOpen = activeMenuId === s.id
+
+              return (
+                <div 
+                  key={s.id} 
+                  onMouseLeave={() => setActiveMenuId(null)}
+                  style={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'space-between', 
+                    padding: '2px 8px 2px 20px', 
+                    background: s.id === activeId && activeTab === 'chat' ? '#f3f0ff' : 'transparent',
+                    position: 'relative',
+                    borderRadius: '8px',
+                    margin: '2px 8px'
+                  }}
+                >
+                  {/* Session Navigation Title */}
+                  <button 
+                    onClick={() => { setActiveId(s.id); setActiveTab('chat') }}
+                    style={{ flex: 1, textAlign: 'left', fontSize: '0.8rem', color: s.id === activeId && activeTab === 'chat' ? '#7c3aed' : '#6b7280', border: 'none', fontWeight: s.id === activeId && activeTab === 'chat' ? 600 : 400, background: 'transparent', cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', padding: '6px 0' }}>
+                    {s.isPinned ? '📌 ' : '📁 '} {s.title}
+                  </button>
+
+                  {/* 3-Dots Menu Button */}
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); setActiveMenuId(isMenuOpen ? null : s.id) }}
+                    style={{ background: 'none', border: 'none', color: '#a3a3a3', cursor: 'pointer', fontSize: '1rem', padding: '4px 8px', fontWeight: 'bold' }}
+                  >
+                    ⋮
+                  </button>
+
+                  {/* Action Dropdown Menu */}
+                  {isMenuOpen && (
+                    <div style={{ position: 'absolute', top: '28px', right: '10px', background: '#fff', border: '1px solid #e5e5e5', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)', zIndex: 100, display: 'flex', flexDirection: 'column', padding: '4px', minWidth: '110px' }}>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); setActiveMenuId(null); handlePinSession(s.id); }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px', fontSize: '0.75rem', color: '#404040', background: 'none', border: 'none', width: '100%', textAlign: 'left', cursor: 'pointer', borderRadius: '4px' }}
+                      >
+                        📌 {s.isPinned ? 'Unpin' : 'Pin'}
+                      </button>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); setActiveMenuId(null); handleRenameSession(s.id); }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px', fontSize: '0.75rem', color: '#404040', background: 'none', border: 'none', width: '100%', textAlign: 'left', cursor: 'pointer', borderRadius: '4px' }}
+                      >
+                        ✏️ Rename
+                      </button>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); setActiveMenuId(null); handleDeleteSession(s.id); }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px', fontSize: '0.75rem', color: '#ef4444', background: 'none', border: 'none', width: '100%', textAlign: 'left', cursor: 'pointer', borderRadius: '4px' }}
+                      >
+                        🗑️ Delete
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )
+            })
+          )}
         </div>
         
         <div style={{ borderTop: '1px solid #e5e5e5', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -704,12 +973,25 @@ export default function App() {
         </div>
       </aside>
 
+      {projectModalOpen && (
+        <ProjectModal 
+          session={activeSession} 
+          onSave={handleProjectSave} 
+          onClose={closeProjectModal} 
+        />
+      )}
+
       {/* ── MAIN CONTENT ─────────────────────────────────── */}
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, background: '#fafafa' }}>
         <div style={{ padding: '12px 24px', borderBottom: '1px solid #e5e5e5', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', fontSize: '0.875rem', fontWeight: 500, color: '#111' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: '0.875rem', fontWeight: 500, color: '#111' }}>
             <StatusDot active={!loading} />
             {loading ? 'Aria is thinking...' : 'Aria ready'}
+            {activeSession.projectName && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', background: '#f3f0ff', border: '1px solid #c4b5fd', borderRadius: 20, fontSize: '0.7rem', color: '#6d28d9', fontWeight: 500 }}>
+                📁 {activeSession.projectName}
+              </span>
+            )}
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
             {['Web', 'RAG', 'CrewAI'].map(t => (
@@ -738,15 +1020,25 @@ export default function App() {
                   </h1>
                   <p style={{ fontSize: '1rem', color: '#737373', margin: 0 }}>I'm Aria, your AI research buddy 🤖</p>
                 </div>
+                
                 <div style={{ width: '100%', maxWidth: 680, marginBottom: 24 }}>
-                  <InputBox onSend={sendMessage} onStop={handleStopGeneration} loading={loading} autoFocus
-                    fileInputRef={fileInputRef} attachments={attachments}
-                    onFileAttach={handleFileAttach} onRemoveAttach={removeAttach}
-                    inputValue={chatInputText} setInputValue={setChatInputText} />
+                  <InputBox 
+                    onSend={sendMessage} 
+                    onStop={handleStopGeneration} 
+                    loading={loading} 
+                    autoFocus
+                    fileInputRef={fileInputRef} 
+                    attachments={attachments}
+                    onFileAttach={handleFileAttach} 
+                    onRemoveAttach={removeAttach}
+                    inputValue={chatInputText} 
+                    setInputValue={setChatInputText} 
+                  />
                 </div>
+
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'center', maxWidth: 680 }}>
                   {quickActions.map(a => (
-                    <button key={a.id} onClick={() => handleQuickActionClick(a.textToInsert)}
+                    <button key={a.id} onClick={() => handleQuickActionClick(a)}
                       style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', borderRadius: 24, border: '1px solid #d4d4d4', background: '#fff', color: '#404040', fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer', boxShadow: '0 1px 2px rgba(0,0,0,0.02)' }}>
                       <span>{a.icon}</span>{a.label}
                     </button>
@@ -757,17 +1049,39 @@ export default function App() {
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, padding: 20 }}>
                 <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 16, marginBottom: 16 }}>
                   {activeSession.messages.map((msg, i) => (
-                    msg.role === 'user'         
-                      ? <UserBubble key={i} text={msg.text} files={msg.files} messageIndex={i} onRewrite={executeInlineRewrite} loading={loading} />
-                      : <AgentBubble key={i} text={msg.text} steps={msg.steps} loading={msg.loading} />
+                    msg.role === 'user'          
+                      ? <UserBubble 
+                          key={i} 
+                          text={msg.text} 
+                          files={msg.files} 
+                          messageIndex={i} 
+                          onRewrite={executeInlineRewrite} 
+                          loading={loading} 
+                        />
+                      : <AgentBubble 
+                          key={i} 
+                          text={msg.text} 
+                          steps={msg.steps} 
+                          loading={msg.loading} 
+                          followupQuestions={msg.followupQuestions} 
+                        />
                   ))}
                   <div ref={bottomRef} />
                 </div>
+                
                 <div style={{ flexShrink: 0 }}>
-                  <InputBox onSend={sendMessage} onStop={handleStopGeneration} loading={loading} autoFocus={false}
-                    fileInputRef={fileInputRef} attachments={attachments}
-                    onFileAttach={handleFileAttach} onRemoveAttach={removeAttach}
-                    inputValue={chatInputText} setInputValue={setChatInputText} />
+                  <InputBox 
+                    onSend={sendMessage} 
+                    onStop={handleStopGeneration} 
+                    loading={loading} 
+                    autoFocus={false}
+                    fileInputRef={fileInputRef} 
+                    attachments={attachments}
+                    onFileAttach={handleFileAttach} 
+                    onRemoveAttach={removeAttach}
+                    inputValue={chatInputText} 
+                    setInputValue={setChatInputText} 
+                  />
                 </div>
               </div>
             )}
@@ -776,7 +1090,16 @@ export default function App() {
 
         {activeTab === 'knowledge' && <KnowledgeBaseTab onNotify={notify} />}
         {activeTab === 'reports' && <ReportsTab sessions={sessions} />}
-        {activeTab === 'settings' && <SettingsTab />}
+        {activeTab === 'settings' && (
+          <SettingsTab
+            model={settingsModel}
+            onModelChange={setSettingsModel}
+            chunks={chunkSize}
+            onChunksChange={setChunkSize}
+            overlap={chunkOverlap}
+            onOverlapChange={setChunkOverlap}
+          />
+        )}
       </main>
 
       {/* ── RIGHT SIDEBAR ────────────────────────────────── */}

@@ -1,9 +1,12 @@
 import os
 import uuid
 import asyncio
+import shutil
+import io
+import json
+import json_repair
+import chromadb
 from concurrent.futures import ThreadPoolExecutor
-
-executor = ThreadPoolExecutor(max_workers=2)
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,8 +18,11 @@ from langchain_groq import ChatGroq
 from langchain_tavily import TavilySearch
 from langchain.agents import create_agent
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-import chromadb
 from sentence_transformers import SentenceTransformer
+
+from memory import UserProfile, ContextExtractor, ProfileInjector
+
+executor = ThreadPoolExecutor(max_workers=2)
 
 # =====================================================================
 # STEP 1 — Paths & API Keys
@@ -36,13 +42,13 @@ if not TAVILY_API_KEY:
     raise RuntimeError("TAVILY_API_KEY not found. Check Backend/.env")
 
 # =====================================================================
-# STEP 2 — FastAPI App
+# STEP 2 — FastAPI App Setup
 # =====================================================================
 app = FastAPI(title="Research Agent Backend", version="3.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5173"],  # Adjust this to ["http://localhost:5173"] if you want strict origins
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -50,15 +56,13 @@ app.add_middleware(
 
 # =====================================================================
 # STEP 3 — ChromaDB + Embedding Model
-# ✅ FIX: must be initialized BEFORE any endpoint that uses them
 # =====================================================================
 db_client         = chromadb.PersistentClient(path=CHROMA_PATH)
 collection        = db_client.get_or_create_collection("research_notes")
 embedding_encoder = SentenceTransformer("all-MiniLM-L6-v2")
 
 # =====================================================================
-# STEP 4 — LLM + Single Agent (used for /api/query only)
-# CrewAI handles /api/research — single agent only for RAG queries
+# STEP 4 — LLM & Agents Setup
 # =====================================================================
 llm = ChatGroq(
     model="llama-3.3-70b-versatile",
@@ -66,10 +70,9 @@ llm = ChatGroq(
     api_key=GROQ_API_KEY
 )
 
-# Add this after your main llm definition
 llm_casual = ChatGroq(
-    model="llama-3.1-8b-instant",   # separate quota from 70b
-    temperature=0.8,                 # more creative/friendly
+    model="llama-3.1-8b-instant",
+    temperature=0.8,
     api_key=GROQ_API_KEY
 )
 
@@ -84,46 +87,64 @@ PERSONALITY:
 - Greet based on time if someone says good morning/evening/night
 - Remember you're talking to Anurag — a Generative AI intern who loves building cool stuff
 - Be excited about AI, tech, and research topics
-- Use emojis naturally 🔥 💡 🚀 — not every line, just where it feels right
+- Use emojis naturally 🔥 💡 🚀
+
+RESPONSE FORMAT:
+You MUST return a valid JSON object with exactly these keys:
+{
+  "answer": "string — the main response content, including any code blocks, markdown, explanations, research findings",
+  "follow_ups": ["string", "string", "string"] — 2-3 short follow-up questions to invite further discussion
+}
 
 RESPONSE RULES:
-- GREETING (hi, hello, good morning): greet back warmly, ask what they want to explore today
-- SHORT QUESTION (what is, in 2 lines): answer directly, add one cool related fact, ask a follow-up
-- RESEARCH REQUEST (research, full report, detailed): structured report, then suggest what to explore next
-- FOLLOW-UP (tell me more, is this related): connect naturally to previous topic and expand
-- OPINION (what do you think): share an opinion like a friend would
+- GREETING (hi, hello): greet back warmly, ask what they want to explore today
+- SHORT QUESTION: answer directly, add one cool fact, ask a follow-up
+- RESEARCH REQUEST: structured report, then suggest what to explore next
 
-ALWAYS end with something that invites a reply:
-- "Want me to dig deeper into this? 🔍"
-- "Pretty cool right? What aspect interests you most?"
-- "Should I research this for your project, bro?"
-- "What do you think about this?"
-
-Never be robotic. Never just dump facts and go silent."""
+The "answer" field contains ALL substantive content. The "followup_questions" are separate conversational prompts.
+Return ONLY the JSON object, no extra text, no markdown fences."""
 
 agent = create_agent(model=llm, tools=tools, system_prompt=system_prompt)
 
 # =====================================================================
-# STEP 5 — Session Stats
+# STEP 5 — Cross-Session Memory Layer
+# =====================================================================
+user_profile = UserProfile.load("default")
+context_extractor = ContextExtractor(llm=llm)
+
+# =====================================================================
+# STEP 6 — Session Stats
 # =====================================================================
 session_stats = {
-    "searches":    0,
+    "searches":      0,
     "chunks_stored": 0,
-    "reports":     0,
-    "tokens_used": 0.0
+    "reports":       0,
+    "tokens_used":   0.0
 }
 
 # =====================================================================
-# STEP 6 — Request Schemas
+# STEP 7 — Request Schemas
 # =====================================================================
 class ResearchRequest(BaseModel):
     topic: str
+    deep_research: bool = False
+    is_followup: bool = False
+    history: list[dict] = []
+    project_context: dict | None = None
+
+
+class ResearchResponse(BaseModel):
+    status: str
+    steps: list[str] = []
+    answer: str
+    reaction: str = ""
+    followup_questions: list[str] = []
 
 class QueryRequest(BaseModel):
     question: str
 
 # =====================================================================
-# STEP 7 — Endpoints
+# STEP 8 — Endpoints
 # =====================================================================
 
 @app.get("/")
@@ -147,107 +168,242 @@ async def run_research(payload: ResearchRequest):
     if not topic:
         raise HTTPException(status_code=400, detail="Topic cannot be empty.")
 
+    # ── Reload profile for latest long-term context ──────────────
+    user_profile.reload()
+    profile_context = user_profile.get_context_summary()
 
-    # ── Intent Detection ─────────────────────────────────────
     casual_keywords = [
-        # Greetings
-        "hi", "hii", "hiii", "hello", "hey", "hey there",
-        "what's up", "sup", "yo", "howdy", "hola",
-        # Time greetings
-        "good morning", "good afternoon", "good evening",
-        "good night", "gm", "gn", "morning", "evening",
-        # Thanks
-        "thanks", "thank you", "thx", "ty", "tysm",
-        "thanks bro", "thank you so much", "appreciated", "cheers",
-        # Acknowledgement
-        "ok", "okay", "ok bro", "got it", "understood", "noted",
-        "sure", "alright", "done", "cool", "nice", "great",
-        "awesome", "perfect", "sounds good",
-        # Reactions
-        "wow", "amazing", "interesting", "lol", "haha",
-        "lmao", "omg", "no way", "really", "seriously", "whoa",
-        # Goodbye
-        "bye", "goodbye", "see you", "see ya", "cya",
-        "later", "take care", "ttyl", "gtg",
-        # Identity
-        "who are you", "what are you", "tell me about yourself",
-        "your name", "what's your name", "introduce yourself",
-        # How are you
-        "how are you", "how r u", "how's it going",
-        "how are things", "you good", "wassup", "what's going on"
+        "hi", "hii", "hiii", "hello", "hey", "hey there", "what's up", "sup", "yo",
+        "good morning", "good afternoon", "good evening", "good night", "gm", "gn",
+        "thanks", "thank you", "thanks bro", "ok", "okay", "ok bro", "got it", "cool",
+        "nice", "awesome", "wow", "bye", "who are you", "how are you"
     ]
 
-    # Single is_casual check — no duplicates
+    format_keywords = [
+        "dotted", "bullet", "bulleted", "list format", "line by line", "one line",
+        "numbered", "outline", "points", "point form"
+    ]
+
     is_casual = (
-        topic.lower().strip() in casual_keywords or
-        any(topic.lower().strip().startswith(w) for w in casual_keywords) or
-        (len(topic.split()) <= 3 and not any(w in topic.lower() for w in
-        ["what", "how", "why", "when", "who", "research", "explain",
-         "define", "tell", "give", "show", "list", "find", "search"]))
+        not payload.is_followup and (
+            topic.lower().strip() in casual_keywords or
+            any(topic.lower().strip().startswith(w) for w in casual_keywords) or
+            any(fk in topic.lower() for fk in format_keywords) or
+            (len(topic.split()) <= 3 and not any(w in topic.lower() for w in
+             ["what", "how", "why", "when", "who", "research", "explain", "define",
+               "tell", "give", "show", "list", "find", "search"]))
+        )
     )
 
     if is_casual:
+        casual_system = """You are Aria, Anurag's friendly AI research buddy.
+
+PERSONALITY:
+- Talk like a close, smart friend — warm, fun, and real
+- Use casual language: "bro", "let's go", "that's interesting!", "oh nice!"
+- Greet based on time if someone says good morning/evening/night
+- Be excited about AI, tech, and research topics
+- Use emojis naturally 🔥 💡 🚀
+
+CRITICAL RULES:
+1. NEVER reference any project, topic, or fact not explicitly mentioned in the user's current message
+2. If the user asks for a specific format (bullet points, dotted, line by line, one line at a time, etc.), THAT FORMAT TAKES PRIORITY over personality flourishes
+3. Do NOT invent context, history, or follow-ups about topics never mentioned
+4. Keep responses SHORT and focused on the current message only
+5. End with 1-3 relevant follow-up questions only if they naturally flow from the current exchange
+
+RESPONSE FORMAT:
+Return a valid JSON object with exactly these keys:
+{
+  "answer": "clean factual answer only — plain text, no emojis, no reactions, no JSON, no formatting",
+  "reaction": "ONE short casual reaction with emojis, e.g. 'Oh nice! 🤩' or 'Great question, bro! 🚀' or empty string",
+  "follow_ups": ["question1", "question2", "question3"] — 1-3 follow-up questions
+}
+
+EXAMPLE CORRECT OUTPUT:
+{
+  "answer": "FPGA stands for Field-Programmable Gate Array. It is a type of integrated circuit that can be programmed after manufacturing.",
+  "reaction": "Cool tech! 🤖",
+  "follow_ups": ["What FPGA applications interest you?", "Want to learn about FPGA programming?"]
+}
+
+EXAMPLE WRONG OUTPUT (do NOT do this):
+{
+  "answer": "{\"answer\": \"FPGA...\", \"reaction\": \"...\"}",
+  "reaction": "",
+  "follow_ups": []
+}
+
+Return ONLY the JSON object, no extra text, no markdown fences."""
+
         response = llm_casual.invoke([{
             "role": "system",
-            "content": """You are Aria, Anurag's friendly AI research buddy. 
-            Talk like a close friend — casual, warm, fun. 
-            Use bro naturally, use emojis, match his energy.
-            If he says good morning → wish him back with energy.
-            If he says thanks → say something warm like anytime bro!
-            If he says hi → greet him and ask what he wants to explore today.
-            If asked who are you → introduce yourself as Aria, Anurag's personal 
-            AI research agent built on LangChain, CrewAI and Groq.
-            Keep replies short, punchy, and friendly. Never robotic."""
+            "content": casual_system
         }, {
             "role": "user",
             "content": topic
         }])
-        return {
-            "status": "success",
-            "steps": ["✓ Casual message — skipped agent pipeline"],
-            "report": response.content
-        }
+
+        # Extract context from casual exchanges too (but don't inject profile context)
+        extracted = context_extractor.extract(topic, response.content, "")
+        user_profile.merge_extraction(extracted)
+        user_profile.push_topic(topic)
+        user_profile.save()
+
+        # Parse JSON response with fallback
+        def extract_from_nested(obj):
+            """If answer contains JSON string, extract real answer/reaction/follow_ups from it."""
+            if isinstance(obj, dict):
+                ans = obj.get("answer", "")
+                react = obj.get("reaction", "")
+                ups = obj.get("follow_ups", [])
+                # Check if answer itself is a JSON stringified JSON string
+                if isinstance(ans, str) and ans.strip().startswith("{") and '"answer"' in ans:
+                    # Try json_repair for robust parsing
+                    try:
+                        nested = json_repair.loads(ans)
+                        nested_ans = nested.get("answer", "")
+                        nested_react = nested.get("reaction", react)
+                        nested_ups = nested.get("follow_ups", ups)
+                        if not nested_ans:
+                            return (ans, react, ups)
+                        return (nested_ans, nested_react, nested_ups)
+                    except Exception:
+                        pass
+            return (obj.get("answer", ""), obj.get("reaction", ""), obj.get("follow_ups", []))
+
+        try:
+            # Use json_repair for the main response too
+            parsed = json_repair.loads(response.content)
+            answer, reaction, follow_ups = extract_from_nested(parsed)
+            if not answer:
+                answer = response.content
+                reaction = ""
+                follow_ups = []
+        except Exception:
+            answer = response.content
+            reaction = ""
+            follow_ups = []
+
+        return ResearchResponse(
+            status="success",
+            steps=[],
+            answer=answer,
+            reaction=reaction,
+            followup_questions=follow_ups
+        ).model_dump()
 
     try:
-        # Research topics — CrewAI 3-agent pipeline
-        loop        = asyncio.get_event_loop()
-        crew_result = await loop.run_in_executor(executor, run_crew, topic)
-        report      = crew_result["report"]
-        steps       = crew_result["steps"]
+        if payload.deep_research:
+            # Inject profile into the topic for CrewAI agents
+            session_project = payload.project_context
+            context_parts = []
+            
+            if profile_context:
+                if session_project and session_project.get("name"):
+                    profile_lines = profile_context.split("\n")
+                    filtered_lines = [line for line in profile_lines 
+                                    if not line.startswith("Active Project:") 
+                                    and not line.startswith("Project Description:")]
+                    profile_context = "\n".join(filtered_lines)
+                if profile_context:
+                    context_parts.append(profile_context)
+            
+            if session_project and session_project.get("name"):
+                context_parts.append(f"Active Project: {session_project['name']}")
+                if session_project.get("description"):
+                    context_parts.append(f"Project Description: {session_project['description']}")
+            
+            full_context = "\n".join(context_parts) if context_parts else ""
+            crew_topic = topic
+            if full_context:
+                crew_topic = (
+                    f"[USER PROFILE CONTEXT]\n{full_context}\n\n"
+                    f"[QUERY]\n{topic}"
+                )
+            loop        = asyncio.get_event_loop()
+            crew_result = await loop.run_in_executor(executor, run_crew, crew_topic)
+            report      = crew_result["report"]
+            steps       = crew_result["steps"]
+        else:
+            # Build messages with conversation history only (no profile context to avoid hallucination)
+            history_messages = payload.history[-6:] if payload.history else []
+            
+            messages = []
+            messages.extend(history_messages)
+            messages.append({"role": "user", "content": topic})
+            
+            result = agent.invoke({"messages": messages})
+            raw_content = result["messages"][-1].content
+            steps = ["✓ Single agent — fast mode"]
+            
+            # Parse structured JSON response
+            try:
+                parsed = json.loads(raw_content)
+                report = parsed.get("answer", raw_content)
+                followup_questions = parsed.get("follow_ups", [])
+            except json.JSONDecodeError:
+                report = raw_content
+                followup_questions = []
 
-        # -- 2. Chunk the report and store in ChromaDB ----------------
+        # Chunk the report and store in ChromaDB
         splitter    = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
         text_chunks = splitter.split_text(report)
 
         if text_chunks:
             chunk_ids        = [str(uuid.uuid4()) for _ in text_chunks]
             chunk_embeddings = embedding_encoder.encode(text_chunks).tolist()
-            collection.add(
-                documents=text_chunks,
-                embeddings=chunk_embeddings,
-                ids=chunk_ids
-            )
+            collection.add(documents=text_chunks, embeddings=chunk_embeddings, ids=chunk_ids)
 
-        # -- 3. Update stats ------------------------------------------
+        # ── Extract and persist long-term context ────────────────
+        extracted = context_extractor.extract(topic, report, profile_context)
+        user_profile.merge_extraction(extracted)
+        user_profile.push_topic(topic)
+        user_profile.save()
+
         session_stats["searches"]      += 1
         session_stats["chunks_stored"] += len(text_chunks)
         session_stats["reports"]       += 1
         session_stats["tokens_used"]   += 1.2
 
-        # -- 4. Return to React ---------------------------------------
-        return {
-            "status": "success",
-            "steps":  steps,
-            "report": report
-        }
-
+        return ResearchResponse(
+            status="success",
+            steps=steps,
+            answer=report,
+            reaction="",
+            followup_questions=followup_questions
+        ).model_dump()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/profile")
+async def get_profile():
+    """Return the current long-term user profile (read-only view)."""
+    user_profile.reload()
+    return {
+        "summary": user_profile.get_context_summary(),
+        "entities": user_profile.get_entities(),
+        "preferences": user_profile.get_preferences(),
+        "constraints": user_profile.get_constraints(),
+        "recent_topics": user_profile.get_recent_topics(10),
+        "conversation_summary": user_profile.get("conversation_summary"),
+    }
+
+
+@app.post("/api/profile/update")
+async def update_profile(payload: dict):
+    """Manually update profile fields. Accepts any subset of:
+    ``{entities: {...}, preferences: {...}, technical_constraints: [...], project_definitions: {...}}``
+    """
+    user_profile.reload()
+    user_profile.merge_extraction(payload)
+    user_profile.save()
+    return {"status": "ok", "summary": user_profile.get_context_summary()}
+
+
 @app.post("/api/query")
 async def query_memory(payload: QueryRequest):
-    """Searches ChromaDB memory — no web search, uses stored knowledge."""
     question = payload.question.strip()
     if not question:
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
@@ -261,66 +417,62 @@ async def query_memory(payload: QueryRequest):
             return {"answer": "No relevant research found in memory. Try researching this topic first."}
 
         context_block = "\n\n".join(retrieved_docs)
-        rag_prompt    = f"""Answer the question using only the context below.
-
-Context:
-{context_block}
-
-Question: {question}
-Answer:"""
+        rag_prompt    = f"Answer the question using only the context below.\n\nContext:\n{context_block}\n\nQuestion: {question}\nAnswer:"
 
         response = llm.invoke([{"role": "user", "content": rag_prompt}])
         return {"answer": response.content}
-
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ── CLEAN MERGED FILE UPLOAD ROUTE ─────────────────────────────
 @app.post("/api/upload")
 async def upload_file(file: UploadFile = File(...)):
-    """
-    Accepts PDF or .txt — chunks, embeds, stores in ChromaDB.
-    ✅ FIX: moved AFTER collection and embedding_encoder are initialized
-    """
-    import io
-    content = await file.read()
-    text    = ""
+    """Accepts PDF/TXT, saves a local backup copy, then processes into ChromaDB."""
+    try:
+        content = await file.read()
+        
+        # 1. Save a local physical copy of the file
+        with open(f"./{file.filename}", "wb") as buffer:
+            buffer.write(content)
+        print(f"File saved locally: {file.filename}")
 
-    if file.filename.endswith(".pdf"):
-        try:
-            import pypdf
-            reader = pypdf.PdfReader(io.BytesIO(content))
-            for page in reader.pages:
-                text += page.extract_text() or ""
-        except ImportError:
-            raise HTTPException(status_code=400, detail="pypdf not installed. Run: pip install pypdf")
-    elif file.filename.endswith(".txt"):
-        text = content.decode("utf-8", errors="ignore")
-    else:
-        raise HTTPException(status_code=400, detail="Only .pdf and .txt files are supported.")
+        # 2. Extract Text Based on Type
+        text = ""
+        if file.filename.endswith(".pdf"):
+            try:
+                import pypdf
+                reader = pypdf.PdfReader(io.BytesIO(content))
+                for page in reader.pages:
+                    text += page.extract_text() or ""
+            except ImportError:
+                raise HTTPException(status_code=400, detail="pypdf not installed. Run: pip install pypdf")
+        elif file.filename.endswith(".txt"):
+            text = content.decode("utf-8", errors="ignore")
+        else:
+            raise HTTPException(status_code=400, detail="Only .pdf and .txt files are supported.")
 
-    if not text.strip():
-        raise HTTPException(status_code=400, detail="Could not extract text from file.")
+        if not text.strip():
+            raise HTTPException(status_code=400, detail="Could not extract text from file.")
 
-    splitter         = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
-    text_chunks      = splitter.split_text(text)
-    chunk_ids        = [str(uuid.uuid4()) for _ in text_chunks]
-    chunk_embeddings = embedding_encoder.encode(text_chunks).tolist()
-    collection.add(documents=text_chunks, embeddings=chunk_embeddings, ids=chunk_ids)
+        # 3. Vector RAG Pipeline (Chunking -> Embedding -> Vector DB Ingestion)
+        splitter         = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+        text_chunks      = splitter.split_text(text)
+        chunk_ids        = [str(uuid.uuid4()) for _ in text_chunks]
+        chunk_embeddings = embedding_encoder.encode(text_chunks).tolist()
+        
+        collection.add(documents=text_chunks, embeddings=chunk_embeddings, ids=chunk_ids)
+        session_stats["chunks_stored"] += len(text_chunks)
 
-    session_stats["chunks_stored"] += len(text_chunks)
+        return {
+            "status": "success",
+            "filename": file.filename,
+            "chunks_stored": len(text_chunks)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-    return {
-        "status":        "success",
-        "filename":      file.filename,
-        "chunks_stored": len(text_chunks)
-    }
 
-
-# =====================================================================
-# Run: uvicorn main:app --reload --port 8000
-# (from inside Backend/ folder)
-# =====================================================================
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(app, host="0.0.0.0", port=8000)
