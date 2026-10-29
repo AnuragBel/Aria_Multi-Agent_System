@@ -1,15 +1,9 @@
 import StatusDot from './StatusDot.jsx'
-
-const toolItems = [
-  { name: 'Tavily search', active: true },
-  { name: 'ChromaDB', active: true },
-  { name: 'Groq LLaMA', active: true },
-  { name: 'PDF reader', active: false },
-]
+import { Bot, Mic } from 'lucide-react'
 
 const agentItems = [
-  { name: 'Researcher', icon: '🔍' },
-  { name: 'Writer', icon: '✍️' },
+  { name: 'Researcher', icon: <Bot size={14} strokeWidth={2} /> },
+  { name: 'Writer', icon: <Mic size={14} strokeWidth={2} /> },
 ]
 
 export default function RightSidebar({ stats, sessions }) {
@@ -20,7 +14,7 @@ export default function RightSidebar({ stats, sessions }) {
     }}>
       <div style={{ padding: '12px', borderBottom: '1px solid #e5e5e5' }}>
         <p style={{ fontSize: 10, color: '#a3a3a3', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 8px' }}>Session Stats</p>
-        {[
+        {[           
           { label: 'Searches', value: stats.searches },
           { label: 'Chunks stored', value: stats.chunks_stored },
           { label: 'Reports', value: stats.reports },
@@ -35,28 +29,36 @@ export default function RightSidebar({ stats, sessions }) {
 
       <div style={{ padding: '12px', borderBottom: '1px solid #e5e5e5' }}>
         <p style={{ fontSize: 10, color: '#a3a3a3', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 8px' }}>Active Tools</p>
-        {toolItems.map(t => (
-          <div key={t.name} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-            <StatusDot active={t.active} />
-            <span style={{ fontSize: '0.75rem', color: '#737373', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
-          </div>
-        ))}
-      </div>
+          {[           
+            { name: 'Tavily search', active: true },
+            { name: 'ChromaDB', active: true },
+            { name: 'Groq LLaMA', active: true },
+            { name: 'PDF reader', active: false },
+          ].map(t => (
+            <div key={t.name} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+              <StatusDot active={t.active} />
+              <span style={{ fontSize: '0.75rem', color: '#737373', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
+            </div>
+          ))}
+        </div>
 
-      <div style={{ padding: '12px' }}>
-        <p style={{ fontSize: 10, color: '#a3a3a3', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 8px' }}>System Agents</p>
-        {agentItems.map(a => (
-          <div key={a.name} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-            <StatusDot active={true} />
-            <span style={{ fontSize: '0.75rem', color: '#737373' }}>{a.icon} {a.name}</span>
-          </div>
-        ))}
-      </div>
+        <div style={{ padding: '12px' }}>
+          <p style={{ fontSize: 10, color: '#a3a3a3', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 8px' }}>System Agents</p>
+          {[           
+            { name: 'Researcher', icon: <Bot size={14} strokeWidth={2} /> },
+            { name: 'Writer', icon: <Mic size={14} strokeWidth={2} /> },
+          ].map(a => (
+            <div key={a.name} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+              <StatusDot active={true} />
+              <span style={{ fontSize: '0.75rem', color: '#737373' }}>{a.icon} {a.name}</span>
+            </div>
+          ))}
+        </div>
 
-      <div style={{ borderTop: '1px solid #e5e5e5', padding: '12px', marginTop: 'auto' }}>
-        <p style={{ fontSize: 10, color: '#a3a3a3', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 4px' }}>Local Storage</p>
-        <p style={{ fontSize: '0.75rem', fontWeight: 500, color: '#525252', margin: 0 }}>{sessions.length} Chats Tracked</p>
-      </div>
-    </aside>
+        <div style={{ borderTop: '1px solid #e5e5e5', padding: '12px', marginTop: 'auto' }}>
+          <p style={{ fontSize: 10, color: '#a3a3a3', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 4px' }}>Local Storage</p>
+          <p style={{ fontSize: '0.75rem', fontWeight: 500, color: '#525252', margin: 0 }}>{sessions.length} Chats Tracked</p>
+        </div>
+      </aside>
   )
 }

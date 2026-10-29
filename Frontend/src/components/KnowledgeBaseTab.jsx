@@ -1,5 +1,6 @@
-import { useState, useRef } from 'react'
+import React, { useState, useRef } from 'react'
 import { API } from '../constants.js'
+import { Paperclip, Loader2, Check, X, Folder, FileText } from 'lucide-react'
 
 export default function KnowledgeBaseTab({ onNotify }) {
   const [uploading, setUploading] = useState(false)
@@ -25,18 +26,18 @@ export default function KnowledgeBaseTab({ onNotify }) {
       <p style={{ fontSize: '0.75rem', color: '#737373', marginBottom: 12 }}>PDF or .txt files get chunked and stored in ChromaDB.</p>
       <button onClick={() => ref.current.click()} disabled={uploading}
         style={{ width: '100%', padding: '16px', border: '2px dashed #7c3aed', borderRadius: 12, background: '#fbfbfe', color: '#7c3aed', fontSize: '0.9rem', fontWeight: 500, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-        {uploading ? '⏳ Uploading...' : '📎 Click to upload PDF or .txt'}
+        {uploading ? <><Loader2 size={16} strokeWidth={2} /> Uploading...</> : <><Paperclip size={14} strokeWidth={2} /> Click to upload PDF or .txt</>}
       </button>
       <input ref={ref} type="file" accept=".pdf,.txt" style={{ display: 'none' }} onChange={handleUpload} />
       {files.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '40px 0', color: '#a3a3a3' }}>
-          <p style={{ fontSize: 32, marginBottom: 8 }}>🗄️</p>
+          <p style={{ fontSize: 32, marginBottom: 8 }}><Folder size={40} strokeWidth={1.5} /></p>
           <p style={{ fontSize: '0.875rem' }}>No documents uploaded yet</p>
         </div>
       ) : files.map((f, i) => (
         <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff', border: '1px solid #e5e5e5', borderRadius: 12, padding: '12px 16px', marginTop: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-            <span>📄</span>
+            <FileText size={14} strokeWidth={1.5} />
             <div style={{ minWidth: 0 }}>
               <p style={{ fontSize: '0.75rem', fontWeight: 500, color: '#111', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</p>
               <p style={{ fontSize: 11, color: '#a3a3a3' }}>{f.date}</p>

@@ -9,6 +9,10 @@ _crewai_cache.strip_cache_breakpoint = lambda messages: messages
 # ── Imports ──────────────────────────────────────────────────
 import os
 from pathlib import Path
+
+os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
+os.environ["CREWAI_DISABLE_TELEMETRY"] = "True"
+os.environ["CREWAI_STORAGE_DIR"] = str(Path(__file__).resolve().parent / ".crewai")
 from dotenv import load_dotenv
 from crewai import Agent, Task, Crew, Process, LLM
 from crewai_tools import TavilySearchTool
@@ -19,15 +23,17 @@ load_dotenv(dotenv_path=BASE_DIR / ".env")
 
 GROQ_API_KEY   = os.getenv("GROQ_API_KEY")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
+GROQ_MODEL     = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 
 # ── Search tool AFTER keys are loaded ────────────────────────
 search_tool = TavilySearchTool(api_key=TAVILY_API_KEY, max_results=2)
 
 # ── LLM ──────────────────────────────────────────────────────
 llm = LLM(
-    model="openai/llama-3.3-70b-versatile",
+    model=f"openai/{GROQ_MODEL}",
     api_key=GROQ_API_KEY,
-    base_url="https://api.groq.com/openai/v1"
+    base_url="https://api.groq.com/openai/v1",
+    max_tokens=900
 )
 
 # ============================================================

@@ -7,6 +7,12 @@ Frontend/node_modules/
 __pycache__/
 *.pyc
 Backend/chroma_store/
+Backend/test_chroma/
+Backend/uploads/
+Backend/server*.log
+Backend/server*.err
+Backend/Anurag_Belgudri_*.pdf
+Backend/Anurag_Belgudri_*.docx
 
 # IDE Configuration Ecosystems
 .vscode/

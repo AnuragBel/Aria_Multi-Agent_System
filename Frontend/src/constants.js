@@ -1,4 +1,6 @@
-export const API = 'http://localhost:8000'
+// Leave this empty in development so Vite proxies API requests to FastAPI.
+// Set VITE_API_URL for a separately hosted backend.
+export const API = import.meta.env.VITE_API_URL || ''
 
 export const quickActions = [
   { id: 'DeepResearch', label: 'Deep Research', icon: '🔬', textToInsert: 'Deep Research: ' },

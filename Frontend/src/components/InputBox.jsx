@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
+import { Image, FileText, X, Plus, Mic, StopCircle, Send } from 'lucide-react'
 
 export default function InputBox({ onSend, onStop, loading, autoFocus, fileInputRef, attachments, onFileAttach, onRemoveAttach, inputValue, setInputValue }) {
   const [listening, setListening] = useState(false)
@@ -16,9 +17,9 @@ export default function InputBox({ onSend, onStop, loading, autoFocus, fileInput
   }
 
   function handleKey(e) {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey) { 
       e.preventDefault()
-      if (!loading) send()
+      if (!loading) send() 
     }
   }
 
@@ -45,9 +46,9 @@ export default function InputBox({ onSend, onStop, loading, autoFocus, fileInput
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
           {attachments.map((f, i) => (
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#ede9fe', border: '1px solid #c4b5fd', color: '#6d28d9', fontSize: 11, padding: '4px 10px', borderRadius: 8 }}>
-              <span>{f.type?.startsWith('image/') ? '🖼️' : '📄'}</span>
+              <span>{f.type?.startsWith('image/') ? <Image size={11} strokeWidth={2} /> : <FileText size={11} strokeWidth={2} />}</span>
               <span style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-              <button onClick={() => onRemoveAttach(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a78bfa', marginLeft: 2, padding: 2, fontSize: 12 }}>✕</button>
+              <button onClick={() => onRemoveAttach(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a78bfa', marginLeft: 2, padding: 2, fontSize: 12 }}><X size={12} strokeWidth={2} /></button>
             </div>
           ))}
         </div>
@@ -55,23 +56,23 @@ export default function InputBox({ onSend, onStop, loading, autoFocus, fileInput
       <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', background: '#fff', border: '1.5px solid #e5e5e5', borderRadius: 24, padding: '10px 16px', transition: 'border-color 0.15s' }}
         onFocus={e => e.currentTarget.style.borderColor = '#7c3aed'}
         onBlur={e => e.currentTarget.style.borderColor = '#e5e5e5'}>
-        <button onClick={() => fileInputRef.current.click()} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#7c3aed', fontSize: 22, padding: '0 6px', alignSelf: 'flex-end', marginBottom: 3, fontWeight: 'bold' }} title="Attach file">+</button>
+        <button onClick={() => fileInputRef.current.click()} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#7c3aed', fontSize: 22, padding: '0 6px', alignSelf: 'flex-end', marginBottom: 3, fontWeight: 'bold' }} title="Attach file"><Plus size={20} strokeWidth={2} /></button>
         <input ref={fileInputRef} type="file" accept="image/*,.pdf,.txt" multiple style={{ display: 'none' }} onChange={onFileAttach} />
         <textarea ref={taRef} value={inputValue} onChange={handleInput} onKeyDown={handleKey}
           placeholder="Ask anything or enter a research topic..."
           rows={1} autoFocus={autoFocus}
           style={{ flex: 1, resize: 'none', border: 'none', outline: 'none', fontSize: '0.875rem', lineHeight: 1.6, background: 'transparent', color: '#262626', fontFamily: 'inherit', padding: '6px 0', maxHeight: 160, overflow: 'auto' }} />
-
-        <button onClick={startVoice} disabled={loading} style={{ width: 38, height: 38, borderRadius: 12, border: '1px solid #e5e5e5', background: listening ? '#ef4444' : '#fff', color: listening ? '#fff' : '#a3a3a3', cursor: 'pointer', flexShrink: 0, alignSelf: 'flex-end', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }} aria-label="Voice">🎙️</button>
-
+        
+        <button onClick={startVoice} disabled={loading} style={{ width: 38, height: 38, borderRadius: 12, border: '1px solid #e5e5e5', background: listening ? '#ef4444' : '#fff', color: listening ? '#fff' : '#a3a3a3', cursor: 'pointer', flexShrink: 0, alignSelf: 'flex-end', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }} aria-label="Voice"><Mic size={16} strokeWidth={2} /></button>
+        
         {loading ? (
           <button onClick={onStop}
             style={{ width: 38, height: 38, borderRadius: 12, background: '#ef4444', color: '#fff', border: 'none', cursor: 'pointer', flexShrink: 0, alignSelf: 'flex-end', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-            aria-label="Stop generation">⏹</button>
+            aria-label="Stop generation"><StopCircle size={14} strokeWidth={2} /></button>
         ) : (
           <button onClick={send} disabled={!inputValue.trim() && attachments.length === 0}
             style={{ width: 38, height: 38, borderRadius: 12, background: '#7c3aed', color: '#fff', border: 'none', cursor: 'pointer', flexShrink: 0, alignSelf: 'flex-end', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: (!inputValue.trim() && attachments.length === 0) ? 0.3 : 1 }}
-            aria-label="Send">↑</button>
+            aria-label="Send"><Send size={14} strokeWidth={2} /></button>
         )}
       </div>
       <p style={{ fontSize: 10, color: '#a3a3a3', textAlign: 'center', marginTop: 6 }}>Enter to send · Shift+Enter for new line · + to attach</p>

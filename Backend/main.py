@@ -1,4 +1,5 @@
 import os
+import re
 import uuid
 import asyncio
 import shutil
@@ -16,7 +17,6 @@ from crew import run_crew
 
 from langchain_groq import ChatGroq
 from langchain_tavily import TavilySearch
-from langchain.agents import create_agent
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from sentence_transformers import SentenceTransformer
 
@@ -24,17 +24,64 @@ from memory import UserProfile, ContextExtractor, ProfileInjector
 
 executor = ThreadPoolExecutor(max_workers=2)
 
+def format_followup_for_user(text: str) -> str:
+    """Format AI follow-up suggestions from the USER's perspective (like ChatGPT & Claude)."""
+    if not text:
+        return ""
+    t = text.strip()
+    t = re.sub(r"^(?:\d+[\.\)]|\-|\*|•)\s*", "", t)
+
+    m = re.match(r"^(?:do you want to see|want to see)\s+(how to\s+.*)", t, re.IGNORECASE)
+    if m:
+        return f"Yes, show me {m.group(1).rstrip(' ?')}"
+
+    m = re.match(r"^(?:do you want to see|want to see)\s+(.*)", t, re.IGNORECASE)
+    if m:
+        return f"Yes, I want to see {m.group(1).rstrip(' ?')}"
+
+    m = re.match(r"^(?:do you want me to|would you like me to)\s+(.*)", t, re.IGNORECASE)
+    if m:
+        return f"Yes, please {m.group(1).rstrip(' ?')}"
+
+    m = re.match(r"^(?:do you want to|would you like to|want to)\s+(.*)", t, re.IGNORECASE)
+    if m:
+        return f"Yes, I want to {m.group(1).rstrip(' ?')}"
+
+    m = re.match(r"^(?:should I|can I)\s+(.*)", t, re.IGNORECASE)
+    if m:
+        return f"Yes, please {m.group(1).rstrip(' ?')}"
+
+    m = re.match(r"^(?:shall we|let's)\s+(.*)", t, re.IGNORECASE)
+    if m:
+        return f"Let's {m.group(1).rstrip(' ?')}"
+
+    m = re.match(r"^(?:are you interested in)\s+(.*)", t, re.IGNORECASE)
+    if m:
+        return f"Tell me more about {m.group(1).rstrip(' ?')}"
+
+    return t
+
+
 # =====================================================================
 # STEP 1 — Paths & API Keys
 # =====================================================================
 BASE_DIR   = Path(__file__).resolve().parent
 ENV_PATH   = BASE_DIR / ".env"
 CHROMA_PATH = str(BASE_DIR / "chroma_store")
+UPLOAD_DIR  = BASE_DIR / "uploads"
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 load_dotenv(dotenv_path=ENV_PATH)
 
 GROQ_API_KEY   = os.getenv("GROQ_API_KEY")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
+GROQ_MODEL     = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+
+runtime_settings = {
+    "model": GROQ_MODEL,
+    "chunk_size": 500,
+    "chunk_overlap": 50
+}
 
 if not GROQ_API_KEY:
     raise RuntimeError("GROQ_API_KEY not found. Check Backend/.env")
@@ -48,7 +95,12 @@ app = FastAPI(title="Research Agent Backend", version="3.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # Adjust this to ["http://localhost:5173"] if you want strict origins
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -65,13 +117,13 @@ embedding_encoder = SentenceTransformer("all-MiniLM-L6-v2")
 # STEP 4 — LLM & Agents Setup
 # =====================================================================
 llm = ChatGroq(
-    model="llama-3.3-70b-versatile",
+    model=GROQ_MODEL,
     temperature=0,
     api_key=GROQ_API_KEY
 )
 
 llm_casual = ChatGroq(
-    model="llama-3.1-8b-instant",
+    model=GROQ_MODEL,
     temperature=0.8,
     api_key=GROQ_API_KEY
 )
@@ -93,18 +145,20 @@ RESPONSE FORMAT:
 You MUST return a valid JSON object with exactly these keys:
 {
   "answer": "string — the main response content, including any code blocks, markdown, explanations, research findings",
-  "follow_ups": ["string", "string", "string"] — 2-3 short follow-up questions to invite further discussion
+  "follow_ups": ["prompt1", "prompt2", "prompt3"] — 2-3 suggested follow-up prompts written from the USER'S PERSPECTIVE
 }
 
-RESPONSE RULES:
-- GREETING (hi, hello): greet back warmly, ask what they want to explore today
-- SHORT QUESTION: answer directly, add one cool fact, ask a follow-up
-- RESEARCH REQUEST: structured report, then suggest what to explore next
+CRITICAL RULES FOR FOLLOW-UP PROMPTS ("follow_ups"):
+Write every follow-up suggestion as a prompt the USER would ask or click next (same as ChatGPT and Claude suggestion chips).
+- NEVER phrase them as questions directed to the user (do NOT say "Do you want to see...?", "Would you like to...?", "Want to learn...?").
+- ALWAYS write them as first-person user requests, affirmative actions, or user questions:
+  * "Yes, show me how to swap elements inside a list or array"
+  * "Show me code examples in Python and C++"
+  * "How does this compare to tuples or dictionaries?"
+  * "Explain the time and space complexity of this approach"
 
-The "answer" field contains ALL substantive content. The "followup_questions" are separate conversational prompts.
+The "answer" field contains ALL substantive content.
 Return ONLY the JSON object, no extra text, no markdown fences."""
-
-agent = create_agent(model=llm, tools=tools, system_prompt=system_prompt)
 
 # =====================================================================
 # STEP 5 — Cross-Session Memory Layer
@@ -143,6 +197,29 @@ class ResearchResponse(BaseModel):
 class QueryRequest(BaseModel):
     question: str
 
+
+def retrieve_uploaded_context(question: str, limit: int = 8) -> tuple[list[str], list[str]]:
+    """Retrieve the most relevant chunks from files uploaded to the knowledge base."""
+    if collection.count() == 0:
+        return [], []
+
+    query_vector = embedding_encoder.encode([question]).tolist()
+    search_results = collection.query(
+        query_embeddings=query_vector,
+        n_results=min(limit, collection.count()),
+        where={"type": "upload"},
+        include=["documents", "metadatas"],
+    )
+    documents = search_results.get("documents", [[]])[0] or []
+    metadatas = search_results.get("metadatas", [[]])[0] or []
+    sources = []
+    for metadata in metadatas:
+        source = metadata.get("source") if metadata else None
+        if source and source not in sources:
+            sources.append(source)
+    return documents, sources
+
+
 # =====================================================================
 # STEP 8 — Endpoints
 # =====================================================================
@@ -150,6 +227,39 @@ class QueryRequest(BaseModel):
 @app.get("/")
 async def health_check():
     return {"status": "running", "message": "Research Agent Backend is live!"}
+
+
+@app.get("/health")
+async def health():
+    return {"status": "healthy", "service": "research-agent-backend"}
+
+
+@app.get("/v1/models")
+async def list_models():
+    """OpenAI-compatible models endpoint for clients that expect it."""
+    return {
+        "object": "list",
+        "data": [
+            {
+                "id": "openai/gpt-oss-120b",
+                "object": "model",
+                "created": 0,
+                "owned_by": "research-agent",
+            },
+            {
+                "id": "qwen/qwen3.8-27b",
+                "object": "model",
+                "created": 0,
+                "owned_by": "research-agent",
+            },
+            {
+                "id": "openai/gpt-oss-20b",
+                "object": "model",
+                "created": 0,
+                "owned_by": "research-agent",
+            },
+        ],
+    }
 
 
 @app.get("/api/stats")
@@ -167,6 +277,24 @@ async def run_research(payload: ResearchRequest):
     topic = payload.topic.strip()
     if not topic:
         raise HTTPException(status_code=400, detail="Topic cannot be empty.")
+
+    try:
+        uploaded_context, uploaded_sources = retrieve_uploaded_context(topic)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not retrieve uploaded document context: {e}") from e
+
+    document_context = ""
+    if uploaded_context:
+        source_label = ", ".join(uploaded_sources) or "uploaded documents"
+        context_block = "\n\n".join(uploaded_context)
+        document_context = (
+            f"[UPLOADED DOCUMENT CONTEXT — sources: {source_label}]\n"
+            "Use this context when the request refers to an uploaded document. "
+            "For summaries, summarize only the supplied document context and do not claim "
+            "that the file is unavailable.\n\n"
+            f"{context_block}\n"
+            "[END UPLOADED DOCUMENT CONTEXT]"
+        )
 
     # ── Reload profile for latest long-term context ──────────────
     user_profile.reload()
@@ -193,6 +321,7 @@ async def run_research(payload: ResearchRequest):
              ["what", "how", "why", "when", "who", "research", "explain", "define",
                "tell", "give", "show", "list", "find", "search"]))
         )
+        and not uploaded_context
     )
 
     if is_casual:
@@ -217,14 +346,25 @@ Return a valid JSON object with exactly these keys:
 {
   "answer": "clean factual answer only — plain text, no emojis, no reactions, no JSON, no formatting",
   "reaction": "ONE short casual reaction with emojis, e.g. 'Oh nice! 🤩' or 'Great question, bro! 🚀' or empty string",
-  "follow_ups": ["question1", "question2", "question3"] — 1-3 follow-up questions
+  "follow_ups": ["prompt1", "prompt2", "prompt3"] — 1-3 suggested prompts written from the USER'S PERSPECTIVE (like ChatGPT & Claude)
 }
+
+CRITICAL RULES FOR "follow_ups":
+- NEVER ask the user questions (do NOT say "Do you want to see...?", "Want to learn...?").
+- Write from the USER'S VOICE as what they would ask next:
+  * "Yes, show me how to swap elements inside a list or array"
+  * "Show me common real-world FPGA applications"
+  * "How do I get started with FPGA programming?"
 
 EXAMPLE CORRECT OUTPUT:
 {
   "answer": "FPGA stands for Field-Programmable Gate Array. It is a type of integrated circuit that can be programmed after manufacturing.",
   "reaction": "Cool tech! 🤖",
-  "follow_ups": ["What FPGA applications interest you?", "Want to learn about FPGA programming?"]
+  "follow_ups": [
+    "Yes, show me how FPGAs differ from ASICs and GPUs",
+    "Show me common real-world FPGA applications",
+    "How do I get started with FPGA programming?"
+  ]
 }
 
 EXAMPLE WRONG OUTPUT (do NOT do this):
@@ -290,10 +430,11 @@ Return ONLY the JSON object, no extra text, no markdown fences."""
             steps=[],
             answer=answer,
             reaction=reaction,
-            followup_questions=follow_ups
+            followup_questions=[format_followup_for_user(q) for q in follow_ups if q]
         ).model_dump()
 
     try:
+        followup_questions = []
         if payload.deep_research:
             # Inject profile into the topic for CrewAI agents
             session_project = payload.project_context
@@ -321,6 +462,8 @@ Return ONLY the JSON object, no extra text, no markdown fences."""
                     f"[USER PROFILE CONTEXT]\n{full_context}\n\n"
                     f"[QUERY]\n{topic}"
                 )
+            if document_context:
+                crew_topic = f"{document_context}\n\n{crew_topic}"
             loop        = asyncio.get_event_loop()
             crew_result = await loop.run_in_executor(executor, run_crew, crew_topic)
             report      = crew_result["report"]
@@ -329,12 +472,15 @@ Return ONLY the JSON object, no extra text, no markdown fences."""
             # Build messages with conversation history only (no profile context to avoid hallucination)
             history_messages = payload.history[-6:] if payload.history else []
             
-            messages = []
+            messages = [{"role": "system", "content": system_prompt}]
             messages.extend(history_messages)
-            messages.append({"role": "user", "content": topic})
+            user_content = topic
+            if document_context:
+                user_content = f"{document_context}\n\nUser request: {topic}"
+            messages.append({"role": "user", "content": user_content})
             
-            result = agent.invoke({"messages": messages})
-            raw_content = result["messages"][-1].content
+            result = llm.invoke(messages)
+            raw_content = result.content
             steps = ["✓ Single agent — fast mode"]
             
             # Parse structured JSON response
@@ -371,10 +517,10 @@ Return ONLY the JSON object, no extra text, no markdown fences."""
             steps=steps,
             answer=report,
             reaction="",
-            followup_questions=followup_questions
+            followup_questions=[format_followup_for_user(q) for q in followup_questions if q]
         ).model_dump()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Research request failed: {e}") from e
 
 
 @app.get("/api/profile")
@@ -420,57 +566,247 @@ async def query_memory(payload: QueryRequest):
         rag_prompt    = f"Answer the question using only the context below.\n\nContext:\n{context_block}\n\nQuestion: {question}\nAnswer:"
 
         response = llm.invoke([{"role": "user", "content": rag_prompt}])
-        return {"answer": response.content}
+        return {"answer": response.content, "sources": retrieved_docs}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 # ── CLEAN MERGED FILE UPLOAD ROUTE ─────────────────────────────
+def _extract_pdf_text_pypdf(content: bytes) -> str:
+    """Extract text from PDF bytes using pypdf."""
+    import pypdf
+    reader = pypdf.PdfReader(io.BytesIO(content))
+    parts = []
+    for page in reader.pages:
+        try:
+            t = page.extract_text()
+        except Exception:
+            t = None
+        if t:
+            parts.append(t)
+    return "\n".join(parts)
+
+
+def _extract_pdf_text_pypdf2(content: bytes) -> str:
+    """Fallback PDF extraction using PyPDF2."""
+    from PyPDF2 import PdfReader
+    reader = PdfReader(io.BytesIO(content))
+    parts = []
+    for page in reader.pages:
+        try:
+            t = page.extract_text()
+        except Exception:
+            t = None
+        if t:
+            parts.append(t)
+    return "\n".join(parts)
+
+
+def _extract_pdf_text_pymupdf(content: bytes) -> str:
+    """Extract text from PDF bytes using PyMuPDF."""
+    import fitz
+    document = fitz.open(stream=content, filetype="pdf")
+    try:
+        return "\n".join(page.get_text() for page in document)
+    finally:
+        document.close()
+
+
 @app.post("/api/upload")
 async def upload_file(file: UploadFile = File(...)):
     """Accepts PDF/TXT, saves a local backup copy, then processes into ChromaDB."""
     try:
+        filename = Path(file.filename or "").name
+        if not filename:
+            raise HTTPException(status_code=400, detail="A filename is required.")
+
         content = await file.read()
-        
-        # 1. Save a local physical copy of the file
-        with open(f"./{file.filename}", "wb") as buffer:
+        print(f"[UPLOAD] Received file: {filename}, size: {len(content)} bytes")
+
+        # 1. Save local physical copy inside UPLOAD_DIR
+        target_path = UPLOAD_DIR / filename
+        with open(target_path, "wb") as buffer:
             buffer.write(content)
-        print(f"File saved locally: {file.filename}")
+        print(f"[UPLOAD] File saved to: {target_path}")
 
         # 2. Extract Text Based on Type
         text = ""
-        if file.filename.endswith(".pdf"):
+        if filename.lower().endswith(".pdf"):
             try:
-                import pypdf
-                reader = pypdf.PdfReader(io.BytesIO(content))
-                for page in reader.pages:
-                    text += page.extract_text() or ""
-            except ImportError:
-                raise HTTPException(status_code=400, detail="pypdf not installed. Run: pip install pypdf")
-        elif file.filename.endswith(".txt"):
+                import pypdf as _pypdf
+                text = _extract_pdf_text_pypdf(content)
+                _page_count = len(_pypdf.PdfReader(io.BytesIO(content)).pages)
+                print(f"[UPLOAD] pypdf extracted {len(text)} chars from {_page_count} pages")
+            except Exception as pypdf_err:
+                print(f"[UPLOAD] pypdf failed: {pypdf_err}")
+                text = ""
+
+            if not text.strip():
+                print(f"[UPLOAD] pypdf returned empty text, trying PyPDF2 fallback...")
+                try:
+                    text = _extract_pdf_text_pypdf2(content)
+                    print(f"[UPLOAD] PyPDF2 extracted {len(text)} chars")
+                except ImportError:
+                    print(f"[UPLOAD] PyPDF2 not installed either.")
+                except Exception as pypdf2_err:
+                    print(f"[UPLOAD] PyPDF2 fallback failed: {pypdf2_err}")
+
+            if not text.strip():
+                print(f"[UPLOAD] PyPDF2 returned empty text, trying PyMuPDF fallback...")
+                try:
+                    text = _extract_pdf_text_pymupdf(content)
+                    print(f"[UPLOAD] PyMuPDF extracted {len(text)} chars")
+                except ImportError:
+                    print("[UPLOAD] PyMuPDF is not installed.")
+                except Exception as pymupdf_err:
+                    print(f"[UPLOAD] PyMuPDF fallback failed: {pymupdf_err}")
+        elif filename.lower().endswith(".txt"):
             text = content.decode("utf-8", errors="ignore")
+            print(f"[UPLOAD] TXT decoded {len(text)} chars")
         else:
             raise HTTPException(status_code=400, detail="Only .pdf and .txt files are supported.")
 
+        print(f"[UPLOAD] Final extracted text length: {len(text)} chars")
+
         if not text.strip():
-            raise HTTPException(status_code=400, detail="Could not extract text from file.")
+            raise HTTPException(status_code=400, detail="Could not extract text from file. The PDF may be image-based (scanned) or have no extractable text layer.")
 
         # 3. Vector RAG Pipeline (Chunking -> Embedding -> Vector DB Ingestion)
-        splitter         = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+        c_size = runtime_settings.get("chunk_size", 500)
+        c_overlap = runtime_settings.get("chunk_overlap", 50)
+        splitter         = RecursiveCharacterTextSplitter(chunk_size=c_size, chunk_overlap=c_overlap)
         text_chunks      = splitter.split_text(text)
+
+        if not text_chunks:
+            raise HTTPException(status_code=400, detail="No text chunks generated from file.")
+
+        print(f"[UPLOAD] Generated {len(text_chunks)} chunks")
+
+        # Re-uploading the same file replaces its old chunks without affecting
+        # chunks belonging to other uploaded files.
+        previous_chunks = len(collection.get(where={"source": filename}).get("ids", []))
+        collection.delete(where={"source": filename})
         chunk_ids        = [str(uuid.uuid4()) for _ in text_chunks]
         chunk_embeddings = embedding_encoder.encode(text_chunks).tolist()
+        metadatas        = [{"source": filename, "type": "upload"} for _ in text_chunks]
         
-        collection.add(documents=text_chunks, embeddings=chunk_embeddings, ids=chunk_ids)
-        session_stats["chunks_stored"] += len(text_chunks)
+        collection.add(documents=text_chunks, embeddings=chunk_embeddings, ids=chunk_ids, metadatas=metadatas)
+        session_stats["chunks_stored"] += len(text_chunks) - previous_chunks
+
+        print(f"[UPLOAD] Stored {len(text_chunks)} chunks in ChromaDB")
 
         return {
             "status": "success",
-            "filename": file.filename,
+            "filename": filename,
             "chunks_stored": len(text_chunks)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+
+
+# ── DOCUMENTS & KNOWLEDGE BASE MANAGEMENT ──────────────────────
+@app.get("/api/documents")
+async def get_documents():
+    """List uploaded documents and vector collection stats."""
+    try:
+        docs = []
+        if UPLOAD_DIR.exists():
+            for f in UPLOAD_DIR.glob("*"):
+                if f.is_file():
+                    docs.append({
+                        "name": f.name,
+                        "size": f.stat().st_size,
+                        "modified": f.stat().st_mtime,
+                        "type": "pdf" if f.name.endswith(".pdf") else "txt"
+                    })
+        count = collection.count() if collection else 0
+        return {
+            "documents": docs,
+            "total_chunks": count,
+            "collection": "research_notes",
+            "embedding_model": "all-MiniLM-L6-v2"
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/documents/{filename}")
+async def delete_document(filename: str):
+    """Delete a document from uploads and ChromaDB."""
+    try:
+        target = UPLOAD_DIR / filename
+        if target.exists():
+            target.unlink()
+        try:
+            collection.delete(where={"source": filename})
+        except Exception:
+            pass
+        return {"status": "deleted", "filename": filename, "total_chunks": collection.count()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/documents/clear")
+async def clear_documents():
+    """Clear all uploaded files and reset the collection."""
+    global collection
+    try:
+        if UPLOAD_DIR.exists():
+            for f in UPLOAD_DIR.glob("*"):
+                if f.is_file():
+                    f.unlink()
+        try:
+            db_client.delete_collection("research_notes")
+        except Exception:
+            pass
+        collection = db_client.get_or_create_collection("research_notes")
+        session_stats["chunks_stored"] = 0
+        return {"status": "cleared", "total_chunks": 0}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── RUNTIME SETTINGS MANAGEMENT ────────────────────────────────
+class SettingsPayload(BaseModel):
+    model: str | None = None
+    chunk_size: int | None = None
+    chunk_overlap: int | None = None
+
+
+@app.get("/api/settings")
+async def get_settings():
+    return {
+        "model": runtime_settings["model"],
+        "chunk_size": runtime_settings["chunk_size"],
+        "chunk_overlap": runtime_settings["chunk_overlap"],
+        "available_models": [
+            "openai/gpt-oss-120b",
+            "qwen/qwen3.8-27b",
+            "openai/gpt-oss-20b"
+        ]
+    }
+
+
+@app.post("/api/settings")
+async def update_settings(payload: SettingsPayload):
+    global llm, llm_casual
+    if payload.model:
+        runtime_settings["model"] = payload.model
+        try:
+            llm = ChatGroq(model=payload.model, temperature=0, api_key=GROQ_API_KEY)
+            llm_casual = ChatGroq(model=payload.model, temperature=0.8, api_key=GROQ_API_KEY)
+        except Exception as e:
+            print(f"Warning: could not reinitialize LLM with {payload.model}: {e}")
+    if payload.chunk_size:
+        runtime_settings["chunk_size"] = payload.chunk_size
+    if payload.chunk_overlap is not None:
+        runtime_settings["chunk_overlap"] = payload.chunk_overlap
+    return {"status": "updated", "settings": runtime_settings}
 
 
 if __name__ == "__main__":

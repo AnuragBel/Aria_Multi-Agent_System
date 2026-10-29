@@ -1,11 +1,10 @@
-import { useState } from 'react'
+import React, { useState } from 'react'
+import { Check } from 'lucide-react'
 
-export default function SettingsTab() {
-  const [model, setModel] = useState('llama-3.3-70b-versatile')
-  const [chunks, setChunks] = useState(500)
-  const [overlap, setOverlap] = useState(50)
+export default function SettingsTab({ model, onModelChange, chunks, onChunksChange, overlap, onOverlapChange }) {
   const [saved, setSaved] = useState(false)
-  function save() { setSaved(true); setTimeout(() => setSaved(false), 2000) }
+  const savedTimer = useRef(null)
+  function save() { setSaved(true); if (savedTimer.current) clearTimeout(savedTimer.current); savedTimer.current = setTimeout(() => { setSaved(false); savedTimer.current = null }, 2000) }
   const card = { background: '#fff', border: '1px solid #e5e5e5', borderRadius: 12, padding: 16, marginBottom: 12 }
   const label = { fontSize: '0.75rem', color: '#525252', display: 'block', marginBottom: 4 }
   return (
@@ -14,17 +13,16 @@ export default function SettingsTab() {
       <div style={card}>
         <p style={{ fontSize: 11, color: '#a3a3a3', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>LLM</p>
         <label style={label}>Model</label>
-        <select value={model} onChange={e => setModel(e.target.value)} style={{ width: '100%', border: '1px solid #e5e5e5', borderRadius: 8, padding: '10px 12px', fontSize: '0.875rem', background: '#fff', outline: 'none' }}>
-          <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile</option>
-          <option value="llama3-70b-8192">llama3-70b-8192</option>
-          <option value="llama-3.1-8b-instant">llama-3.1-8b-instant (faster)</option>
+        <select value={model} onChange={e => onModelChange(e.target.value)} style={{ width: '100%', border: '1px solid #e5e5e5', borderRadius: 8, padding: '10px 12px', fontSize: '0.875rem', background: '#fff', outline: 'none' }}>
+          <option value="qwen/qwen3.8-27b">qwen/qwen3.8-27b</option>
+          <option value="openai/gpt-oss-20b">openai/gpt-oss-20b (fast)</option>
         </select>
       </div>
       <div style={card}>
         <p style={{ fontSize: 11, color: '#a3a3a3', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>RAG Pipeline</p>
         {[
-          ['Chunk size', chunks, setChunks, 100, 1000, 50],
-          ['Chunk overlap', overlap, setOverlap, 0, 200, 10]
+          ['Chunk size', chunks, onChunksChange, 100, 1000, 50],
+          ['Chunk overlap', overlap, onOverlapChange, 0, 200, 10]
         ].map(([lbl, val, set, min, max, step]) => (
           <div key={lbl} style={{ marginBottom: 12 }}>
             <label style={label}>{lbl}: <strong>{val}</strong></label>
@@ -33,7 +31,7 @@ export default function SettingsTab() {
         ))}
       </div>
       <button onClick={save} style={{ width: '100%', padding: '12px', borderRadius: 12, border: 'none', background: saved ? '#22c55e' : '#7c3aed', color: '#fff', fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer' }}>
-        {saved ? '✓ Saved!' : 'Save Settings'}
+        <Check size={14} strokeWidth={2} /> {saved ? 'Saved!' : 'Save Settings'}
       </button>
       <div style={{ ...card, marginTop: 12 }}>
         <p style={{ fontSize: 11, color: '#a3a3a3', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Stack Info</p>

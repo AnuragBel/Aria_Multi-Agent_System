@@ -8,4 +8,9 @@ export default defineConfig({
     react(), 
     tailwindcss() // 👈 2. Activate the plugin
   ],
+  server: {
+    proxy: {
+      '/api': 'http://127.0.0.1:8000',
+    },
+  },
 })
